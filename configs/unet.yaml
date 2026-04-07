@@ -3,7 +3,7 @@ model_name: "unet"
 
 # Data
 data_root: "data/train"
-image_size: 256
+image_size: 512
 val_ratio: 0.2
 use_augmentation: false
 

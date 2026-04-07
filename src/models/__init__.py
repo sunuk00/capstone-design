@@ -1,6 +1,7 @@
 from torch import nn
 
 from .deeplabv3 import DeepLabV3Model
+from .resunet import ResUNet
 from .unet import ConvBlock, UNet
 
 
@@ -13,10 +14,13 @@ def get_model(model_name: str, in_channels: int = 3, out_channels: int = 1, base
     if name == "deeplabv3":
         return DeepLabV3Model(in_channels=in_channels, out_channels=out_channels)
 
-    if name in {"resunet", "segformer"}:
+    if name == "resunet":
+        return ResUNet(in_channels=in_channels, out_channels=out_channels, base_channels=base_channels)
+
+    if name == "segformer":
         raise NotImplementedError(f"Model '{model_name}' is not implemented yet.")
 
     raise ValueError(f"Unknown model name: {model_name}")
 
 
-__all__ = ["ConvBlock", "UNet", "DeepLabV3Model", "get_model"]
+__all__ = ["ConvBlock", "UNet", "ResUNet", "DeepLabV3Model", "get_model"]

@@ -30,3 +30,6 @@ outputs/
 
 # Notebook/runtime temp
 *.log
+
+# Datasets
+data/train/

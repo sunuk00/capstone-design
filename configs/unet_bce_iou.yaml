@@ -25,5 +25,5 @@ dice_weight: 0.5
 pos_weight: 10.0
 
 # Output
-output_dir: "outputs/unet_trained/bce_iou_512_30"
+output_dir: "outputs/unet_trained"
 save_interval: 1
