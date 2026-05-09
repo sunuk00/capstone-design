@@ -1,0 +1,73 @@
+{
+    "total_predictions": 7,
+    "model_path": ".\\outputs\\unet\\exp001__bce__pos00\\model_best.pt",
+    "image_dir": "data/test/images",
+    "output_dir": ".\\outputs\\unet\\exp001__bce__pos00\\predictions",
+    "image_size": 512,
+    "threshold": 0.5,
+    "predictions": [
+        {
+            "image": "test001.jpg",
+            "mask": "test001_mask.png",
+            "output_path": "outputs\\unet\\exp001__bce__pos00\\predictions\\test001_mask.png",
+            "original_size": [
+                943,
+                814
+            ]
+        },
+        {
+            "image": "test002.jpg",
+            "mask": "test002_mask.png",
+            "output_path": "outputs\\unet\\exp001__bce__pos00\\predictions\\test002_mask.png",
+            "original_size": [
+                700,
+                700
+            ]
+        },
+        {
+            "image": "test003.jpg",
+            "mask": "test003_mask.png",
+            "output_path": "outputs\\unet\\exp001__bce__pos00\\predictions\\test003_mask.png",
+            "original_size": [
+                600,
+                954
+            ]
+        },
+        {
+            "image": "test004.jpg",
+            "mask": "test004_mask.png",
+            "output_path": "outputs\\unet\\exp001__bce__pos00\\predictions\\test004_mask.png",
+            "original_size": [
+                1928,
+                1130
+            ]
+        },
+        {
+            "image": "test005.jpg",
+            "mask": "test005_mask.png",
+            "output_path": "outputs\\unet\\exp001__bce__pos00\\predictions\\test005_mask.png",
+            "original_size": [
+                1206,
+                1207
+            ]
+        },
+        {
+            "image": "test006.jpg",
+            "mask": "test006_mask.png",
+            "output_path": "outputs\\unet\\exp001__bce__pos00\\predictions\\test006_mask.png",
+            "original_size": [
+                1025,
+                517
+            ]
+        },
+        {
+            "image": "test007.jpg",
+            "mask": "test007_mask.png",
+            "output_path": "outputs\\unet\\exp001__bce__pos00\\predictions\\test007_mask.png",
+            "original_size": [
+                1397,
+                1030
+            ]
+        }
+    ]
+}

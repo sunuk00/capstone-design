@@ -26,7 +26,7 @@ dist/
 *.egg-info/
 
 # Training artifacts (models/logs) - keep data and experiment images tracked
-outputs/
+outputs/.trash_outputs/
 
 # Notebook/runtime temp
 *.log

@@ -27,8 +27,8 @@ if __package__ in (None, ""):
 from src.core import collect_pairs, split_pairs, set_seed, run_epoch, EpochStats
 from src.data import MarathonSegDataset
 from src.models import get_model
-# src/losses.py에서 BCEIoULoss, BCEDiceLoss를 가져옴
-from src.losses import BCEIoULoss, BCEDiceLoss
+# src/losses.py에서 BCELoss, BCEIoULoss, BCEDiceLoss를 가져옴
+from src.losses import BCELoss, BCEIoULoss, BCEDiceLoss, FocalLoss
 
 
 
@@ -44,7 +44,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     
     # 데이터 관련 인자
     parser.add_argument("--data-root", type=str, default="data/train", help="Training data root directory")
-    parser.add_argument("--image-size", type=int, default=256, help="Input image size")
+    parser.add_argument("--image-size", type=int, default=512, help="Input image size")
     parser.add_argument("--val-ratio", type=float, default=0.2, help="Validation split ratio")
     parser.add_argument("--use-augmentation", action="store_true", help="Apply basic train-time data augmentation")
     
@@ -54,22 +54,25 @@ def build_arg_parser() -> argparse.ArgumentParser:
     
     # 학습 관련 인자
     parser.add_argument("--batch-size", type=int, default=4, help="Batch size")
-    parser.add_argument("--epochs", type=int, default=20, help="Number of epochs")
-    parser.add_argument("--lr", type=float, default=1e-3, help="Learning rate")
+    parser.add_argument("--epochs", type=int, default=50, help="Number of epochs")
+    parser.add_argument("--lr", type=float, default=1e-4, help="Learning rate")
     parser.add_argument("--seed", type=int, default=42, help="Random seed")
     parser.add_argument("--num-workers", type=int, default=0, help="Number of workers for DataLoader")
     
     # 손실 함수 관련 인자
-    parser.add_argument("--loss-type", type=str, default="bce_iou", choices=["bce_iou", "bce_dice"],
+    parser.add_argument("--loss-type", type=str, default="bce_iou", choices=["bce", "bce_iou", "bce_dice", "focal"],
                        help="Loss function type")
     parser.add_argument("--bce-weight", type=float, default=0.5, help="Weight for BCE loss")
     parser.add_argument("--iou-weight", type=float, default=0.5, help="Weight for IoU loss (when using bce_iou)")
     parser.add_argument("--dice-weight", type=float, default=0.5, help="Weight for Dice loss (when using bce_dice)")
     parser.add_argument("--pos-weight", type=float, default=10.0, help="Positive weight for class imbalance")
+    parser.add_argument("--focal-alpha", type=float, default=0.75, help="Alpha for Focal Loss: weight for positive (path) pixels")
+    parser.add_argument("--focal-gamma", type=float, default=2.0, help="Gamma for Focal Loss: focusing parameter")
     
     # 출력 관련 인자
     parser.add_argument("--output-dir", type=str, default="outputs/unet_trained", help="Output directory")
-    parser.add_argument("--save-interval", type=int, default=1, help="Save model every N epochs")
+    parser.add_argument("--early-stopping-patience", type=int, default=7, help="Stop training after this many epochs without val_loss improvement (0 disables early stopping)")
+    parser.add_argument("--early-stopping-min-delta", type=float, default=0.0, help="Minimum val_loss improvement required to reset early stopping")
     
     return parser
 
@@ -117,6 +120,8 @@ def build_loss_fn(args: argparse.Namespace) -> torch.nn.Module:
     """
     인자에 따라 손실 함수를 생성하는 함수
     """
+    if args.loss_type == "bce":
+        return BCELoss(pos_weight=args.pos_weight)
     if args.loss_type == "bce_iou":
         return BCEIoULoss(
             bce_weight=args.bce_weight,
@@ -128,6 +133,11 @@ def build_loss_fn(args: argparse.Namespace) -> torch.nn.Module:
             bce_weight=args.bce_weight,
             dice_weight=args.dice_weight,
             pos_weight=args.pos_weight,
+        )
+    elif args.loss_type == "focal":
+        return FocalLoss(
+            alpha=args.focal_alpha,
+            gamma=args.focal_gamma,
         )
     else:
         raise ValueError(f"Unknown loss type: {args.loss_type}")
@@ -219,6 +229,10 @@ def main() -> None:
 
     # 학습 기록 저장
     log_history = []
+    best_val_loss = float("inf")
+    best_epoch = 0
+    best_model_state_dict = None
+    epochs_without_improvement = 0
 
     print(f"\nStarting training for {args.epochs} epochs")
     print("-" * 80)
@@ -246,6 +260,23 @@ def main() -> None:
         }
         log_history.append(log_entry)
 
+        improved = val_stats.loss < (best_val_loss - args.early_stopping_min_delta)
+        if improved:
+            best_val_loss = val_stats.loss
+            best_epoch = epoch + 1
+            best_model_state_dict = {key: value.detach().cpu().clone() for key, value in model.state_dict().items()}
+            epochs_without_improvement = 0
+            best_model_path = output_dir / "model_best.pt"
+            torch.save({
+                "epoch": epoch + 1,
+                "model_state_dict": model.state_dict(),
+                "optimizer_state_dict": optimizer.state_dict(),
+                "args": vars(args),
+                "val_loss": val_stats.loss,
+            }, best_model_path)
+        else:
+            epochs_without_improvement += 1
+
         # 출력
         print(
             f"Epoch {epoch + 1:3d}/{args.epochs} | "
@@ -253,29 +284,33 @@ def main() -> None:
             f"Val Loss: {val_stats.loss:.6f} | Val Dice: {val_stats.dice:.4f} | Val IoU: {val_stats.iou:.4f}"
         )
 
-        # 모델 저장 (매 save_interval epoch마다)
-        if (epoch + 1) % args.save_interval == 0:
-            model_path = output_dir / f"model_epoch_{epoch + 1:03d}.pt"
-            torch.save({
-                "epoch": epoch + 1,
-                "model_state_dict": model.state_dict(),
-                "optimizer_state_dict": optimizer.state_dict(),
-                "args": vars(args),
-            }, model_path)
-            print(f"  Model saved to {model_path}")
+        if args.early_stopping_patience > 0:
+            print(
+                f"  Best Val Loss: {best_val_loss:.6f} at epoch {best_epoch} | "
+                f"No improvement: {epochs_without_improvement}/{args.early_stopping_patience}"
+            )
+            if epochs_without_improvement >= args.early_stopping_patience:
+                print(
+                    f"Early stopping triggered at epoch {epoch + 1}. "
+                    f"Best val_loss was {best_val_loss:.6f} at epoch {best_epoch}."
+                )
+                break
 
     print("-" * 80)
     print("Training completed!")
 
-    # 최종 모델 저장
-    final_model_path = output_dir / "model_final.pt"
+    # 마지막 epoch 모델 저장
+    last_model_path = output_dir / "model_last.pt"
     torch.save({
-        "epoch": args.epochs,
+        "epoch": epoch + 1,
         "model_state_dict": model.state_dict(),
         "optimizer_state_dict": optimizer.state_dict(),
         "args": vars(args),
-    }, final_model_path)
-    print(f"Final model saved to {final_model_path}")
+    }, last_model_path)
+    print(f"Last model saved to {last_model_path}")
+
+    if best_model_state_dict is not None:
+        print(f"Best model: epoch {best_epoch} (val_loss={best_val_loss:.6f}), saved to {best_model_path}")
 
     # 학습 기록 저장
     log_path = output_dir / "training_log.json"

@@ -39,7 +39,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--model-path", type=str, default="outputs/unet_trained/model_final.pt", help="Path to trained model checkpoint")
     parser.add_argument("--image-dir", type=str, default="data/test/images", help="Directory containing images to predict")
     parser.add_argument("--output-dir", type=str, default="outputs/predictions", help="Output directory for predictions")
-    parser.add_argument("--image-size", type=int, default=256, help="Input image size")
+    parser.add_argument("--image-size", type=int, default=512, help="Input image size")
 
     # 이진 마스크 생성 시 사용할 확률 threshold : 모델이 출력하는 확률값이 이 threshold보다 크면 해당 픽셀을 1(경로)로, 그렇지 않으면 0(비경로)으로 분류
     parser.add_argument("--threshold", type=float, default=0.5, help="Probability threshold for binary mask")  

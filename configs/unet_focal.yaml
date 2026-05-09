@@ -1,0 +1,26 @@
+# U-Net + Focal Loss 실험 설정
+model_name: "unet"
+
+# Data
+data_root: "data/train"
+image_size: 512
+val_ratio: 0.2
+use_augmentation: false
+
+# Model
+base_channels: 32
+
+# Training
+batch_size: 4
+epochs: 20
+lr: 0.001
+seed: 42
+num_workers: 0
+
+# Loss
+loss_type: "focal"
+focal_alpha: 0.75   # 경로 픽셀(양성)에 대한 가중치. 희소할수록 높게 설정
+focal_gamma: 2.0    # focusing parameter. 클수록 쉬운(배경) 샘플 억제 강도 증가
+
+# Output
+output_dir: "outputs/unet_focal"

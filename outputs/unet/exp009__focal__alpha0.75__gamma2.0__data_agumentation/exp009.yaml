@@ -1,0 +1,35 @@
+# Model
+model_name: "unet"
+base_channels: 32
+
+# Data
+data_root: "data/train"
+image_size: 512
+val_ratio: 0.2
+use_augmentation: true
+
+# Training
+batch_size: 8
+epochs: 200
+lr: 0.0001
+seed: 42
+num_workers: 0
+
+# Loss
+loss_type: "focal"
+focal_alpha: 0.75
+focal_gamma: 2.0
+pos_weight: 15.0
+
+# Output
+output_dir: "outputs/unet/exp_009__focal__alpha0.75__gamma2.0__data_augmentation"
+save_interval: 1
+
+# 결과
+best_epoch: 68
+best_val_loss: 0.003562
+best_val_iou: 0.3077
+best_val_dice: 0.4205
+test_iou: null
+test_dice: null
+

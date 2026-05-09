@@ -1,0 +1,35 @@
+# Model
+model_name: "unet"
+base_channels: 32
+
+# Data
+data_root: "data/train"
+image_size: 512
+val_ratio: 0.2
+use_augmentation: true
+
+# Training
+batch_size: 8
+epochs: 200
+lr: 0.0001
+seed: 42
+num_workers: 0
+
+# Loss
+loss_type: "bce_dice"
+bce_weight: 0.3
+dice_weight: 0.7
+pos_weight: 0.0
+
+# Output
+output_dir: "outputs/unet/exp_004__bce_dice__pos00__data_augmentation"
+save_interval: 1
+
+# 결과
+best_epoch: 109
+best_val_loss: 0.428908
+best_val_iou: 0.3446
+best_val_dice: 0.4543
+test_iou: null
+test_dice: null
+
