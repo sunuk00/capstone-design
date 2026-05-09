@@ -19,7 +19,6 @@ num_workers: 0
 loss_type: "focal"
 focal_alpha: 0.75
 focal_gamma: 2.0
-pos_weight: 15.0
 
 # Output
 output_dir: "outputs/unet/exp010__focal__alpha0.75__gamma2.0__data_augmentation__image768"
