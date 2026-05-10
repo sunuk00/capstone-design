@@ -7,12 +7,10 @@ import argparse
 import json
 import sys
 from pathlib import Path
-from typing import Optional
 
 import torch
 import torch.optim as optim
 from torch.utils.data import DataLoader
-import yaml
 
 if __package__ in (None, ""):
     project_root = Path(__file__).resolve().parents[1]
@@ -24,11 +22,11 @@ if __package__ in (None, ""):
 
 
 # src/__init__.py에서 UNet, MarathonSegDataset, collect_pairs, split_pairs, set_seed, run_epoch, EpochStats를 가져옴
-from src.core import collect_pairs, split_pairs, set_seed, run_epoch, EpochStats
+from src.core import collect_pairs, split_pairs, set_seed, run_epoch, EpochStats, parse_args_with_config
 from src.data import MarathonSegDataset
 from src.models import get_model
 # src/losses.py에서 BCELoss, BCEIoULoss, BCEDiceLoss를 가져옴
-from src.losses import BCELoss, BCEIoULoss, BCEDiceLoss, FocalLoss
+from src.losses import BCELoss, BCEIoULoss, BCEDiceLoss, FocalLoss, FocalDiceLoss, SkeletonRecallLoss, SkeletonRecallDiceLoss, BCEDiceSkelRecallLoss
 
 
 
@@ -49,7 +47,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--use-augmentation", action="store_true", help="Apply basic train-time data augmentation")
     
     # 모델 관련 인자
-    parser.add_argument("--model-name", type=str, default="unet", choices=["unet", "resunet", "deeplabv3", "segformer"], help="Model architecture name")
+    parser.add_argument("--model-name", type=str, default="unet", choices=["unet", "resunet", "deeplabv3", "unet++", "unet3+"], help="Model architecture name")
     parser.add_argument("--base-channels", type=int, default=32, help="Base number of channels in U-Net")
     
     # 학습 관련 인자
@@ -60,14 +58,21 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--num-workers", type=int, default=0, help="Number of workers for DataLoader")
     
     # 손실 함수 관련 인자
-    parser.add_argument("--loss-type", type=str, default="bce_iou", choices=["bce", "bce_iou", "bce_dice", "focal"],
-                       help="Loss function type")
+    parser.add_argument("--loss-type", type=str, default="bce_iou",
+                        choices=["bce", "bce_iou", "bce_dice", "focal", "focal_dice", "skel_recall", "skel_recall_dice", "bce_dice_skel"],
+                        help="Loss function type")
     parser.add_argument("--bce-weight", type=float, default=0.5, help="Weight for BCE loss")
-    parser.add_argument("--iou-weight", type=float, default=0.5, help="Weight for IoU loss (when using bce_iou)")
-    parser.add_argument("--dice-weight", type=float, default=0.5, help="Weight for Dice loss (when using bce_dice)")
+    parser.add_argument("--iou-weight", type=float, default=None, help="Weight for IoU loss; defaults to (1 - bce_weight)")
+    parser.add_argument("--dice-weight", type=float, default=None, help="Weight for Dice loss; defaults to (1 - bce_weight)")
     parser.add_argument("--pos-weight", type=float, default=10.0, help="Positive weight for class imbalance")
     parser.add_argument("--focal-alpha", type=float, default=0.75, help="Alpha for Focal Loss: weight for positive (path) pixels")
     parser.add_argument("--focal-gamma", type=float, default=2.0, help="Gamma for Focal Loss: focusing parameter")
+    parser.add_argument("--focal-weight", type=float, default=0.5, help="a in: Total Loss = a*Focal + (1-a)*Dice (focal_dice only)")
+    parser.add_argument("--skel-weight", type=float, default=0.5, help="a in: Total Loss = a*SkelRecall + (1-a)*Dice (skel_recall_dice only)")
+    parser.add_argument("--skel-iters", type=int, default=5, help="Soft skeleton erosion iterations (skel_recall / skel_recall_dice)")
+    parser.add_argument("--skel-alpha", type=float, default=0.3, help="BCE weight in bce_dice_skel loss")
+    parser.add_argument("--skel-beta", type=float, default=0.3, help="Dice weight in bce_dice_skel loss")
+    parser.add_argument("--skel-gamma", type=float, default=0.4, help="SkelRecall weight in bce_dice_skel loss")
     
     # 출력 관련 인자
     parser.add_argument("--output-dir", type=str, default="outputs/unet_trained", help="Output directory")
@@ -76,44 +81,6 @@ def build_arg_parser() -> argparse.ArgumentParser:
     
     return parser
 
-
-def load_config_file(config_path: str) -> dict:
-    """
-    YAML config 파일을 읽어 dict로 반환한다.
-    """
-    path = Path(config_path)
-    if not path.exists():
-        raise FileNotFoundError(f"Config file not found: {path}")
-
-    with open(path, "r", encoding="utf-8") as f:
-        loaded = yaml.safe_load(f) or {}
-
-    if not isinstance(loaded, dict):
-        raise ValueError("Config file must be a YAML mapping (key-value pairs).")
-
-    return loaded
-
-
-def parse_args_with_config() -> argparse.Namespace:
-    """
-    1) --config 위치를 먼저 파악하고
-    2) config 값을 parser 기본값으로 주입한 뒤
-    3) 전체 인자를 다시 파싱한다.
-    """
-    # 1차 파싱: config 경로만 먼저 읽기
-    pre_parser = argparse.ArgumentParser(add_help=False)
-    pre_parser.add_argument("--config", type=str, default=None)
-    pre_args, _ = pre_parser.parse_known_args()
-
-    parser = build_arg_parser()
-
-    # 2차 파싱 전: config 값을 기본값으로 주입
-    if pre_args.config is not None:
-        config_values = load_config_file(pre_args.config)
-        parser.set_defaults(**config_values)
-
-    # 3차 파싱: 최종 파싱 (CLI가 config 기본값을 덮어씀)
-    return parser.parse_args()
 
 
 def build_loss_fn(args: argparse.Namespace) -> torch.nn.Module:
@@ -139,13 +106,33 @@ def build_loss_fn(args: argparse.Namespace) -> torch.nn.Module:
             alpha=args.focal_alpha,
             gamma=args.focal_gamma,
         )
+    elif args.loss_type == "focal_dice":
+        return FocalDiceLoss(
+            focal_weight=args.focal_weight,
+            alpha=args.focal_alpha,
+            gamma=args.focal_gamma,
+        )
+    elif args.loss_type == "skel_recall":
+        return SkeletonRecallLoss(num_iters=args.skel_iters)
+    elif args.loss_type == "skel_recall_dice":
+        return SkeletonRecallDiceLoss(
+            skel_weight=args.skel_weight,
+            num_iters=args.skel_iters,
+        )
+    elif args.loss_type == "bce_dice_skel":
+        return BCEDiceSkelRecallLoss(
+            alpha=args.skel_alpha,
+            beta=args.skel_beta,
+            gamma=args.skel_gamma,
+            pos_weight=args.pos_weight,
+        )
     else:
         raise ValueError(f"Unknown loss type: {args.loss_type}")
 
 
 def main() -> None:
     # 터미널에서 입력받은 하이퍼파라미터(학습률, 배치사이즈 등)나 파일 경로 등의 설정값을 불러옴 
-    args = parse_args_with_config()
+    args = parse_args_with_config(build_arg_parser)
 
     # 매번 같은 결과를 얻기 위해 시드 값을 고정함 - 랜덤 시드 고정은 모델의 초기 가중치, 데이터 섞는 순서 등에서 일관된 결과를 얻도록 도와줌
     set_seed(args.seed)
@@ -154,7 +141,7 @@ def main() -> None:
     data_root = Path(args.data_root)
     images_dir = data_root / "images"
     masks_dir = data_root / "masks"
-    output_dir = Path(args.output_dir)
+    output_dir = Path(args.output_dir).resolve()
     output_dir.mkdir(parents=True, exist_ok=True)
 
     # 디렉토리 존재 확인
@@ -173,13 +160,20 @@ def main() -> None:
     print(f"Total pairs: {len(pairs)} | Train: {len(train_pairs)} | Val: {len(val_pairs)}")
 
     # 데이터셋 생성
+    use_skeleton = args.loss_type == "bce_dice_skel"
     train_ds = MarathonSegDataset(
         train_pairs,
         image_size=args.image_size,
         model_name=args.model_name,
         use_augmentation=args.use_augmentation,
+        use_skeleton=use_skeleton,
     )
-    val_ds = MarathonSegDataset(val_pairs, image_size=args.image_size, model_name=args.model_name)
+    val_ds = MarathonSegDataset(
+        val_pairs,
+        image_size=args.image_size,
+        model_name=args.model_name,
+        use_skeleton=use_skeleton,
+    )
 
     # DataLoader 생성 - DataLoader는 데이터셋에서 배치 단위로 데이터를 불러오는 역할을 함. 학습 중에 데이터를 섞거나 여러 프로세스를 사용하여 데이터를 불러올 수 있도록 도와줌
     pin_memory = torch.cuda.is_available()
@@ -231,7 +225,7 @@ def main() -> None:
     log_history = []
     best_val_loss = float("inf")
     best_epoch = 0
-    best_model_state_dict = None
+    best_model_path = None
     epochs_without_improvement = 0
 
     print(f"\nStarting training for {args.epochs} epochs")
@@ -264,9 +258,8 @@ def main() -> None:
         if improved:
             best_val_loss = val_stats.loss
             best_epoch = epoch + 1
-            best_model_state_dict = {key: value.detach().cpu().clone() for key, value in model.state_dict().items()}
-            epochs_without_improvement = 0
             best_model_path = output_dir / "model_best.pt"
+            epochs_without_improvement = 0
             torch.save({
                 "epoch": epoch + 1,
                 "model_state_dict": model.state_dict(),
@@ -309,7 +302,7 @@ def main() -> None:
     }, last_model_path)
     print(f"Last model saved to {last_model_path}")
 
-    if best_model_state_dict is not None:
+    if best_model_path is not None:
         print(f"Best model: epoch {best_epoch} (val_loss={best_val_loss:.6f}), saved to {best_model_path}")
 
     # 학습 기록 저장

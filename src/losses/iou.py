@@ -2,6 +2,8 @@
 IoU (Intersection over Union) 기반 손실 함수
 """
 
+from typing import Optional
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -54,16 +56,13 @@ class BCEIoULoss(nn.Module):
     """
     def __init__(
         self,
-        # Todo: bce랑 iou의 Loss 비율 조정하면서 성능 향상 시도해보기 - 예를 들어, bce_weight=0.5, iou_weight=0.5로 설정하여 두 손실이 동일한 비중으로 모델 학습에 기여하도록 할 수 있음
-        bce_weight: float = 0.5, 
-        iou_weight: float = 0.5,
-
-        # Todo: pos_weight 조정하면서 성능 향상 시도해보기 - 예를 들어, pos_weight=10.0으로 설정하여 경로 픽셀의 오차가 배경 픽셀보다 10배 더 크게 반영되도록 할 수 있음 - 이렇게 하면 모델이 경로 픽셀을 더 잘 학습하도록 도와줄 수 있음
+        bce_weight: float = 0.5,
+        iou_weight: Optional[float] = None,
         pos_weight: float = 10.0,
     ) -> None:
         super().__init__()
         self.bce_weight = bce_weight
-        self.iou_weight = iou_weight
+        self.iou_weight = iou_weight if iou_weight is not None else 1.0 - bce_weight
         # pos_weight는 양성(경로) 픽셀을 더 크게 벌주기 위한 가중치
         # foreground가 매우 희소할 때(현재 데이터처럼) BCE가 배경 위주로 학습되는 것을 완화함
         self.register_buffer("pos_weight", torch.tensor([pos_weight], dtype=torch.float32))

@@ -2,6 +2,8 @@
 Dice (F1 Score) 기반 손실 함수
 """
 
+from typing import Optional
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -56,18 +58,18 @@ class BCEDiceLoss(nn.Module):
     def __init__(
         self,
         bce_weight: float = 0.5,
-        dice_weight: float = 0.5,
+        dice_weight: Optional[float] = None,
         pos_weight: float = 10.0,
     ) -> None:
         """
         Args:
-            bce_weight: BCE 손실의 가중치
-            dice_weight: Dice 손실의 가중치
+            bce_weight: BCE 손실의 가중치. dice_weight 미지정 시 Dice 비중은 (1-bce_weight).
+            dice_weight: Dice 손실의 가중치. 명시하면 해당 값을 사용.
             pos_weight: 양성(경로) 픽셀에 부여할 가중치
         """
         super().__init__()
         self.bce_weight = bce_weight
-        self.dice_weight = dice_weight
+        self.dice_weight = dice_weight if dice_weight is not None else 1.0 - bce_weight
         self.register_buffer("pos_weight", torch.tensor([pos_weight], dtype=torch.float32))
 
     def forward(self, logits: torch.Tensor, target: torch.Tensor) -> torch.Tensor:

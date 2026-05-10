@@ -20,6 +20,12 @@ from torch.utils.data import Dataset
 
 from .augmentation import apply_basic_augmentation
 
+try:
+    from skimage.morphology import skeletonize as _ski_skeletonize
+    _SKIMAGE_AVAILABLE = True
+except ImportError:
+    _SKIMAGE_AVAILABLE = False
+
 
 IMAGENET_MEAN = torch.tensor([0.485, 0.456, 0.406], dtype=torch.float32).view(3, 1, 1)
 IMAGENET_STD = torch.tensor([0.229, 0.224, 0.225], dtype=torch.float32).view(3, 1, 1)
@@ -54,11 +60,15 @@ class MarathonSegDataset(Dataset):
         image_size: int,
         model_name: str = "unet",
         use_augmentation: bool = False,
+        use_skeleton: bool = False,
     ) -> None:
+        if use_skeleton and not _SKIMAGE_AVAILABLE:
+            raise ImportError("use_skeleton=True requires scikit-image: pip install scikit-image")
         self.pairs = list(pairs)
         self.image_size = image_size
         self.model_name = model_name
         self.use_augmentation = use_augmentation
+        self.use_skeleton = use_skeleton
 
     def __len__(self) -> int:
         return len(self.pairs)
@@ -91,4 +101,10 @@ class MarathonSegDataset(Dataset):
         image_tensor = torch.from_numpy(image_arr).permute(2, 0, 1)
         image_tensor = apply_model_preprocess(image_tensor, self.model_name)
         mask_tensor = torch.from_numpy(mask_arr).unsqueeze(0)
+
+        if self.use_skeleton:
+            skel_arr = _ski_skeletonize(mask_arr > 0.5).astype(np.float32)
+            skel_tensor = torch.from_numpy(skel_arr).unsqueeze(0)
+            return image_tensor, mask_tensor, skel_tensor
+
         return image_tensor, mask_tensor

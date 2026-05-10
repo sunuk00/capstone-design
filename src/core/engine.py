@@ -10,6 +10,8 @@ import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import DataLoader
 
+from .metrics import dice_score_from_logits, iou_score_from_logits
+
 
 @dataclass
 class EpochStats:
@@ -27,29 +29,35 @@ def run_epoch(
 ) -> EpochStats:
     is_train = optimizer is not None
     model.train(is_train)
+    needs_skel = getattr(criterion, "needs_skeleton", False)
 
     running_loss = 0.0
     running_dice = 0.0
     running_iou = 0.0
     count = 0
 
-    for images, masks in loader:
-        images = images.to(device)
-        masks = masks.to(device)
+    for batch in loader:
+        if needs_skel:
+            images, masks, skels = batch
+            images = images.to(device)
+            masks = masks.to(device)
+            skels = skels.to(device)
+        else:
+            images, masks = batch
+            images = images.to(device)
+            masks = masks.to(device)
 
         if is_train:
             optimizer.zero_grad()
 
         logits = model(images)
-        loss = criterion(logits, masks)
+        loss = criterion(logits, masks, skels) if needs_skel else criterion(logits, masks)
 
         if is_train:
             loss.backward()
             optimizer.step()
 
         with torch.no_grad():
-            from .metrics import dice_score_from_logits, iou_score_from_logits
-
             dice = dice_score_from_logits(logits, masks)
             iou = iou_score_from_logits(logits, masks)
 

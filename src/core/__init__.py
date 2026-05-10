@@ -2,7 +2,7 @@ from src.models import UNet, ConvBlock
 from src.data import MarathonSegDataset
 from .engine import EpochStats, run_epoch
 from .metrics import dice_score_from_logits, iou_score_from_logits
-from .utils import set_seed, collect_pairs, split_pairs, VALID_EXTENSIONS
+from .utils import set_seed, collect_pairs, split_pairs, VALID_EXTENSIONS, load_config_file, parse_args_with_config
 
 __all__ = [
     "UNet",
@@ -16,4 +16,6 @@ __all__ = [
     "EpochStats",
     "run_epoch",
     "VALID_EXTENSIONS",
+    "load_config_file",
+    "parse_args_with_config",
 ]

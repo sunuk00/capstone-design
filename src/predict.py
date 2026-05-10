@@ -7,12 +7,11 @@ import argparse
 import json
 import sys
 from pathlib import Path
-from typing import Optional, Tuple
+from typing import Tuple
 
 import numpy as np
 import torch
 from PIL import Image
-import yaml
 
 if __package__ in (None, ""):
     project_root = Path(__file__).resolve().parents[1]
@@ -21,7 +20,7 @@ if __package__ in (None, ""):
     # Avoid conflicts with third-party packages named "src" when running as a script.
     sys.modules.pop("src", None)
 
-from src.core import VALID_EXTENSIONS
+from src.core import VALID_EXTENSIONS, parse_args_with_config
 from src.data import apply_model_preprocess
 from src.models import get_model
 
@@ -47,44 +46,6 @@ def build_arg_parser() -> argparse.ArgumentParser:
     
     return parser
 
-
-def load_config_file(config_path: str) -> dict:
-    """
-    YAML config 파일을 읽어 dict로 반환한다.
-    """
-    path = Path(config_path)
-    if not path.exists():
-        raise FileNotFoundError(f"Config file not found: {path}")
-
-    with open(path, "r", encoding="utf-8") as f:
-        loaded = yaml.safe_load(f) or {}
-
-    if not isinstance(loaded, dict):
-        raise ValueError("Config file must be a YAML mapping (key-value pairs).")
-
-    return loaded
-
-
-def parse_args_with_config() -> argparse.Namespace:
-    """
-    1) --config 위치를 먼저 파악하고
-    2) config 값을 parser 기본값으로 주입한 뒤
-    3) 전체 인자를 다시 파싱한다.
-    """
-    # 1차 파싱: config 경로만 먼저 읽기
-    pre_parser = argparse.ArgumentParser(add_help=False)
-    pre_parser.add_argument("--config", type=str, default=None)
-    pre_args, _ = pre_parser.parse_known_args()
-
-    parser = build_arg_parser()
-
-    # 2차 파싱 전: config 값을 기본값으로 주입
-    if pre_args.config is not None:
-        config_values = load_config_file(pre_args.config)
-        parser.set_defaults(**config_values)
-
-    # 3차 파싱: 최종 파싱 (CLI가 config 기본값을 덮어씀)
-    return parser.parse_args()
 
 
 def load_model(model_path: str, device: torch.device, base_channels: int = 32) -> Tuple[torch.nn.Module, dict]:
@@ -178,7 +139,7 @@ def predict_single(
 
 
 def main() -> None:
-    args = parse_args_with_config()
+    args = parse_args_with_config(build_arg_parser)
 
     # 디바이스 설정
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")

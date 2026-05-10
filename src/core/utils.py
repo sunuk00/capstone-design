@@ -3,15 +3,44 @@
 공통 함수들과 헬퍼 함수들 정의
 """
 
+import argparse
 import random
 from pathlib import Path
-from typing import List, Sequence, Tuple
+from typing import Callable, List, Sequence, Tuple
 
 import numpy as np
 import torch
+import yaml
 
 
 VALID_EXTENSIONS = (".jpg", ".jpeg", ".png", ".bmp")
+
+
+def load_config_file(config_path: str) -> dict:
+    path = Path(config_path)
+    if not path.exists():
+        raise FileNotFoundError(f"Config file not found: {path}")
+    with open(path, "r", encoding="utf-8") as f:
+        loaded = yaml.safe_load(f) or {}
+    if not isinstance(loaded, dict):
+        raise ValueError("Config file must be a YAML mapping (key-value pairs).")
+    return loaded
+
+
+def parse_args_with_config(
+    build_arg_parser: Callable[[], argparse.ArgumentParser],
+) -> argparse.Namespace:
+    pre_parser = argparse.ArgumentParser(add_help=False)
+    pre_parser.add_argument("--config", type=str, default=None)
+    pre_args, _ = pre_parser.parse_known_args()
+
+    parser = build_arg_parser()
+
+    if pre_args.config is not None:
+        config_values = load_config_file(pre_args.config)
+        parser.set_defaults(**config_values)
+
+    return parser.parse_args()
 
 
 def set_seed(seed: int) -> None:

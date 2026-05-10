@@ -48,3 +48,34 @@ class FocalLoss(nn.Module):
         focal_weight = alpha_t * (1.0 - p_t) ** self.gamma
 
         return (focal_weight * bce).mean()
+
+
+class FocalDiceLoss(nn.Module):
+    """
+    Focal Loss + Soft Dice Loss 조합
+
+    Total Loss = a * Focal Loss + (1 - a) * Dice Loss
+    - Focal: 클래스 불균형 및 어려운 픽셀에 집중
+    - Dice: 전체 영역 겹침(F1)에 집중
+    """
+    def __init__(
+        self,
+        focal_weight: float = 0.5,
+        alpha: float = 0.75,
+        gamma: float = 2.0,
+    ) -> None:
+        """
+        Args:
+            focal_weight: 수식의 a값. Focal Loss 비중 (0~1), Dice 비중은 (1-a).
+            alpha: FocalLoss 내부 alpha — 양성(경로) 픽셀 가중치.
+            gamma: FocalLoss 내부 gamma — focusing parameter.
+        """
+        super().__init__()
+        self.focal_weight = focal_weight
+        self.focal = FocalLoss(alpha=alpha, gamma=gamma)
+
+    def forward(self, logits: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
+        from .dice import soft_dice_loss_from_logits
+        focal_loss = self.focal(logits, target)
+        dice_loss = soft_dice_loss_from_logits(logits, target)
+        return self.focal_weight * focal_loss + (1.0 - self.focal_weight) * dice_loss
