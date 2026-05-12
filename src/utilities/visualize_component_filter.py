@@ -48,23 +48,23 @@ def build_arg_parser() -> argparse.ArgumentParser:
         default="outputs/component_filter_visualization",
         help="Output directory",
     )
-    parser.add_argument(
+    parser.add_argument( 
         "--threshold",
         type=int,
         default=127,
-        help="Binarization threshold",
+        help="Binarization threshold", # 입력 마스크가 흑백이 아닌 경우, 이 임계값으로 이진화한다.
     )
     parser.add_argument(
         "--min-component-area",
         type=int,
         default=130,
-        help="Minimum area to keep components",
+        help="Minimum area to keep components", # 이 픽셀 수 미만인 성분은 제거된다.
     )
     parser.add_argument(
         "--max-labeled-components",
         type=int,
         default=60,
-        help="Maximum components to color individually in label preview",
+        help="Maximum components to color individually in label preview", # 연결 성분 라벨 시각화에서 개별 색상으로 구분할 최대 성분 수. 이 수를 초과하는 성분은 회색으로 표시된다.
     )
     return parser
 
