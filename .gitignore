@@ -27,6 +27,11 @@ dist/
 
 # Training artifacts (models/logs) - keep data and experiment images tracked
 outputs/.trash_outputs/
+outputs/**/*.pth
+outputs/**/*.pt
+outputs/**/*.ckpt
+outputs/**/*.bin
+outputs/**/*.safetensors
 
 # Notebook/runtime temp
 *.log
