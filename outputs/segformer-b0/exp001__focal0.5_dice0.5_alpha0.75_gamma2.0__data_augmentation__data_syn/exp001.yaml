@@ -1,0 +1,36 @@
+# Model
+model_name: "segformer_b0"
+base_channels: 32
+
+# Data
+data_root: "data/train"
+image_size: 512
+val_ratio: 0.2
+use_augmentation: false
+
+# Training
+batch_size: 4
+epochs: 10000
+lr: 0.0001
+seed: 42
+num_workers: 0
+
+# Loss
+loss_type: "focal_dice"
+dice_weight: 0.5
+focal_weight: 0.5
+focal_alpha: 0.75
+focal_gamma: 2.0
+
+# Output
+output_dir: "outputs/segformer_b0/exp001__focal0.5_dice0.5_alpha0.75_gamma2.0__data_augmentation__data_syn"
+save_interval: 1
+
+# 결과
+best_epoch: 61
+best_val_loss: 0.08385
+best_val_iou: 0.78043
+best_val_dice: 0.84703
+test_iou: null
+test_dice: null
+

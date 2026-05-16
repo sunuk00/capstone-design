@@ -24,9 +24,10 @@ if __package__ in (None, ""):
 # src/__init__.py에서 UNet, MarathonSegDataset, collect_pairs, split_pairs, set_seed, run_epoch, EpochStats를 가져옴
 from src.core import collect_pairs, split_pairs, set_seed, run_epoch, EpochStats, parse_args_with_config
 from src.data import MarathonSegDataset
-from src.models import get_model
+from src.models import get_model, SegFormerUNet
+from src.models.segformer_unet import DeepSupervisionLoss
 # src/losses.py에서 BCELoss, BCEIoULoss, BCEDiceLoss를 가져옴
-from src.losses import BCELoss, BCEIoULoss, BCEDiceLoss, FocalLoss, FocalDiceLoss, SkeletonRecallLoss, SkeletonRecallDiceLoss, BCEDiceSkelRecallLoss
+from src.losses import BCELoss, BCEIoULoss, BCEDiceLoss, FocalLoss, FocalDiceLoss, SkeletonRecallLoss, SkeletonRecallDiceLoss, BCEDiceSkelRecallLoss, BoundaryLoss, BCEDiceBoundaryLoss
 
 
 
@@ -45,21 +46,29 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--image-size", type=int, default=512, help="Input image size")
     parser.add_argument("--val-ratio", type=float, default=0.2, help="Validation split ratio")
     parser.add_argument("--use-augmentation", action="store_true", help="Apply basic train-time data augmentation")
+    parser.add_argument("--use-grayscale-aug", action="store_true", help="Apply grayscale conversion augmentation (50%% prob) to reduce color dependency")
     
     # 모델 관련 인자
-    parser.add_argument("--model-name", type=str, default="unet", choices=["unet", "resunet", "deeplabv3", "unet++", "unet3+"], help="Model architecture name")
+    parser.add_argument("--model-name", type=str, default="unet",
+                        choices=["unet", "resunet", "deeplabv3", "unet++", "unet3+",
+                                 "segformer-b0", "segformer-b2", "segformer-b4",
+                                 "segformer_unet-b0", "segformer_unet-b2", "segformer_unet-b4"],
+                        help="Model architecture name")
     parser.add_argument("--base-channels", type=int, default=32, help="Base number of channels in U-Net")
     
     # 학습 관련 인자
     parser.add_argument("--batch-size", type=int, default=4, help="Batch size")
     parser.add_argument("--epochs", type=int, default=50, help="Number of epochs")
-    parser.add_argument("--lr", type=float, default=1e-4, help="Learning rate")
+    parser.add_argument("--lr", type=float, default=1e-4, help="Learning rate (decoder lr for SegFormerUNet)")
+    parser.add_argument("--encoder-lr", type=float, default=1e-5,
+                        help="Encoder learning rate for SegFormerUNet (사전학습 가중치 보호용). "
+                             "SegFormerUNet 이외의 모델에는 적용되지 않는다.")
     parser.add_argument("--seed", type=int, default=42, help="Random seed")
     parser.add_argument("--num-workers", type=int, default=0, help="Number of workers for DataLoader")
     
     # 손실 함수 관련 인자
     parser.add_argument("--loss-type", type=str, default="bce_iou",
-                        choices=["bce", "bce_iou", "bce_dice", "focal", "focal_dice", "skel_recall", "skel_recall_dice", "bce_dice_skel"],
+                        choices=["bce", "bce_iou", "bce_dice", "focal", "focal_dice", "skel_recall", "skel_recall_dice", "bce_dice_skel", "boundary", "bce_dice_boundary"],
                         help="Loss function type")
     parser.add_argument("--bce-weight", type=float, default=0.5, help="Weight for BCE loss")
     parser.add_argument("--iou-weight", type=float, default=None, help="Weight for IoU loss; defaults to (1 - bce_weight)")
@@ -73,7 +82,10 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--skel-alpha", type=float, default=0.3, help="BCE weight in bce_dice_skel loss")
     parser.add_argument("--skel-beta", type=float, default=0.3, help="Dice weight in bce_dice_skel loss")
     parser.add_argument("--skel-gamma", type=float, default=0.4, help="SkelRecall weight in bce_dice_skel loss")
-    
+    parser.add_argument("--boundary-weight", type=float, default=0.2, help="Boundary loss component weight in bce_dice_boundary")
+    parser.add_argument("--boundary-ratio", type=float, default=5.0, help="Upweight multiplier for boundary pixels (boundary & bce_dice_boundary)")
+    parser.add_argument("--dilation-radius", type=int, default=3, help="Boundary band thickness in pixels (boundary & bce_dice_boundary)")
+
     # 출력 관련 인자
     parser.add_argument("--output-dir", type=str, default="outputs/unet_trained", help="Output directory")
     parser.add_argument("--early-stopping-patience", type=int, default=7, help="Stop training after this many epochs without val_loss improvement (0 disables early stopping)")
@@ -126,6 +138,21 @@ def build_loss_fn(args: argparse.Namespace) -> torch.nn.Module:
             gamma=args.skel_gamma,
             pos_weight=args.pos_weight,
         )
+    elif args.loss_type == "boundary":
+        return BoundaryLoss(
+            boundary_ratio=args.boundary_ratio,
+            dilation_radius=args.dilation_radius,
+            pos_weight=args.pos_weight,
+        )
+    elif args.loss_type == "bce_dice_boundary":
+        return BCEDiceBoundaryLoss(
+            bce_weight=args.bce_weight,
+            dice_weight=args.dice_weight if args.dice_weight is not None else 1.0 - args.bce_weight - args.boundary_weight,
+            boundary_weight=args.boundary_weight,
+            pos_weight=args.pos_weight,
+            boundary_ratio=args.boundary_ratio,
+            dilation_radius=args.dilation_radius,
+        )
     else:
         raise ValueError(f"Unknown loss type: {args.loss_type}")
 
@@ -166,6 +193,7 @@ def main() -> None:
         image_size=args.image_size,
         model_name=args.model_name,
         use_augmentation=args.use_augmentation,
+        use_grayscale_aug=args.use_grayscale_aug,
         use_skeleton=use_skeleton,
     )
     val_ds = MarathonSegDataset(
@@ -215,11 +243,29 @@ def main() -> None:
     # 손실 함수 설정
     criterion = build_loss_fn(args) # 인자에 따라 손실 함수를 생성하는 함수
     criterion = criterion.to(device) # 손실 함수를 디바이스로 이동 - 모델과 손실 함수를 같은 디바이스에 올려야 계산이 가능함 : GPU에서 모델을 학습할 때 손실 함수도 GPU로 이동시켜야 함
-    print(f"Loss function: {args.loss_type}")
+    # SegFormerUNet deep supervision: 모델이 dict를 반환하므로 래퍼로 감쌈
+    if isinstance(model, SegFormerUNet) and model.deep_supervision:
+        criterion = DeepSupervisionLoss(criterion)
+        print("Loss function: DeepSupervisionLoss (main=1.0, aux3=0.4, aux2=0.2) wrapping", args.loss_type)
+    else:
+        print(f"Loss function: {args.loss_type}")
     print(f"Model: {args.model_name}")
 
     # 최적화 함수 설정
-    optimizer = optim.Adam(model.parameters(), lr=args.lr)
+    # SegFormerUNet은 사전학습 인코더와 랜덤 초기화 디코더를 차등 학습률로 학습한다.
+    # - 인코더(encoder): args.encoder_lr (기본 1e-5) — 사전학습 가중치 보호
+    # - 디코더(up1/up2/up3/head 등): args.lr (기본 1e-4) — 랜덤 초기화이므로 높게
+    if isinstance(model, SegFormerUNet):
+        enc_params = list(model.encoder.parameters())
+        enc_param_ids = {id(p) for p in enc_params}
+        dec_params = [p for p in model.parameters() if id(p) not in enc_param_ids]
+        optimizer = optim.Adam([
+            {"params": enc_params, "lr": args.encoder_lr},
+            {"params": dec_params, "lr": args.lr},
+        ])
+        print(f"Optimizer: encoder lr={args.encoder_lr}, decoder lr={args.lr}")
+    else:
+        optimizer = optim.Adam(model.parameters(), lr=args.lr)
 
     # 학습 기록 저장
     log_history = []

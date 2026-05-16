@@ -57,9 +57,11 @@ def run_epoch(
             loss.backward()
             optimizer.step()
 
+        # loss 계산 후에 main logit 추출 (deep supervision 모델은 dict 반환)
+        main_logits = logits["main"] if isinstance(logits, dict) else logits
         with torch.no_grad():
-            dice = dice_score_from_logits(logits, masks)
-            iou = iou_score_from_logits(logits, masks)
+            dice = dice_score_from_logits(main_logits, masks)
+            iou = iou_score_from_logits(main_logits, masks)
 
         batch_size = images.size(0)
         running_loss += loss.item() * batch_size

@@ -3,6 +3,7 @@ from .iou import SoftIoULoss, BCEIoULoss
 from .dice import SoftDiceLoss, BCEDiceLoss
 from .focal import FocalLoss, FocalDiceLoss
 from .skeleton import SkeletonRecallLoss, SkeletonRecallDiceLoss, BCEDiceSkelRecallLoss
+from .boundary import BoundaryLoss, BCEDiceBoundaryLoss
 
 __all__ = [
     "BCELoss",
@@ -15,4 +16,6 @@ __all__ = [
     "SkeletonRecallLoss",
     "SkeletonRecallDiceLoss",
     "BCEDiceSkelRecallLoss",
+    "BoundaryLoss",
+    "BCEDiceBoundaryLoss",
 ]

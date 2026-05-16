@@ -5,12 +5,14 @@
 
 import argparse
 import json
+import re
 import sys
 from pathlib import Path
 from typing import Tuple
 
 import numpy as np
 import torch
+import torch.nn as nn
 from PIL import Image
 
 if __package__ in (None, ""):
@@ -23,6 +25,56 @@ if __package__ in (None, ""):
 from src.core import VALID_EXTENSIONS, parse_args_with_config
 from src.data import apply_model_preprocess
 from src.models import get_model
+from src.models.segformer_unet import SegFormerUNet
+
+
+def _remap_v1_keys(state_dict: dict) -> dict:
+    """
+    SegFormerUNet v1 체크포인트의 키를 v2 키 이름으로 변환한다.
+
+    v1: ConvBlock.block.{0,1,3,4}.* 구조 (bias=True Conv2d + BN)
+    v2: ConvBlock[0][0/1].* 구조 (ConvBNReLU×2, bias=False)
+    """
+    new_sd = {}
+    for k, v in state_dict.items():
+        k2 = k
+        # upN.conv.block.0.weight → upN.conv.0.0.weight  (1번째 Conv2d)
+        k2 = re.sub(r"(up\d\.conv)\.block\.0\.weight$", r"\1.0.0.weight", k2)
+        # upN.conv.block.1.* → upN.conv.0.1.*  (1번째 BN)
+        k2 = re.sub(r"(up\d\.conv)\.block\.1\.", r"\1.0.1.", k2)
+        # upN.conv.block.3.weight → upN.conv.1.0.weight  (2번째 Conv2d)
+        k2 = re.sub(r"(up\d\.conv)\.block\.3\.weight$", r"\1.1.0.weight", k2)
+        # upN.conv.block.4.* → upN.conv.1.1.*  (2번째 BN)
+        k2 = re.sub(r"(up\d\.conv)\.block\.4\.", r"\1.1.1.", k2)
+        # upN.skip_proj.weight → upN.skip_proj.0.weight  (v2는 Sequential)
+        k2 = re.sub(r"(up\d\.skip_proj)\.weight$", r"\1.0.weight", k2)
+        # v1 Conv2d bias는 v2가 bias=False + BN 이므로 제거
+        if re.search(r"conv\.block\.[03]\.bias$", k):
+            continue
+        new_sd[k2] = v
+    return new_sd
+
+
+def _init_as_identity(module: nn.Sequential) -> None:
+    """
+    ConvBNReLU(= Sequential[Conv2d, BN, ReLU]) 를 항등 변환으로 초기화한다.
+
+    v1에 없던 pre_head가 v2에 추가됐을 때, 로드 후 feature를 왜곡하지 않도록
+    center-pixel identity conv + BN identity 로 설정한다.
+    """
+    conv: nn.Conv2d         = module[0]
+    bn:   nn.BatchNorm2d    = module[1]
+    out_ch, in_ch = conv.weight.shape[:2]
+    with torch.no_grad():
+        conv.weight.zero_()
+        for i in range(min(out_ch, in_ch)):
+            conv.weight[i, i, 1, 1] = 1.0  # 중심 픽셀만 1 → 채널별 항등 근사
+        bn.weight.fill_(1.0)
+        bn.bias.zero_()
+        bn.running_mean.zero_()
+        bn.running_var.fill_(1.0)
+
+
 
 
 def build_arg_parser() -> argparse.ArgumentParser:
@@ -50,28 +102,57 @@ def build_arg_parser() -> argparse.ArgumentParser:
 
 def load_model(model_path: str, device: torch.device, base_channels: int = 32) -> Tuple[torch.nn.Module, dict]:
     """
-    저장된 모델을 로드하는 함수
-    
+    저장된 모델을 로드하는 함수.
+
+    v1 SegFormerUNet 체크포인트(키 이름이 다름)도 자동으로 감지해
+    v2 모델로 호환 로드한다.
+
     Args:
         model_path: 모델 체크포인트 경로
         device: 모델을 로드할 디바이스
         base_channels: U-Net의 기본 채널 수
-    
+
     Returns:
         (모델, 설정값) 튜플
     """
     checkpoint = torch.load(model_path, map_location=device)
-    
-    ckpt_args = checkpoint.get("args", {})
-    model_name = ckpt_args.get("model_name", "unet")
 
-    model = get_model(
-        model_name=model_name,
-        in_channels=3,
-        out_channels=1,
-        base_channels=base_channels,
-    )
-    model.load_state_dict(checkpoint["model_state_dict"])
+    ckpt_args   = checkpoint.get("args", {})
+    model_name  = ckpt_args.get("model_name", "unet")
+    state_dict  = checkpoint["model_state_dict"]
+
+    # ── v1 SegFormerUNet 체크포인트 감지 ─────────────────────────────────────
+    # v1은 ConvBlock.block.N 경로를 사용; v2는 ConvBNReLU 중첩 구조
+    is_segformer_unet = model_name.lower().startswith("segformer_unet")
+    is_v1_ckpt = is_segformer_unet and any("conv.block." in k for k in state_dict)
+
+    if is_v1_ckpt:
+        print("[경고] v1 SegFormerUNet 체크포인트 감지 → v2 호환 모드로 로드합니다.")
+        variant = model_name.split("-")[-1] if "-" in model_name else "b0"
+        model = SegFormerUNet(
+            out_channels=1,
+            variant=variant,
+            use_aspp=False,         # v1에 없던 ASPP 비활성화
+            deep_supervision=False, # v1에 없던 보조 헤드 비활성화
+            v1_compat=True,         # v1은 skip_proj가 skip_ch→skip_ch 크기로 projection
+        )
+        remapped = _remap_v1_keys(state_dict)
+        missing, unexpected = model.load_state_dict(remapped, strict=False)
+        # pre_head는 v2 신규 레이어 → feature 왜곡 방지를 위해 항등 변환으로 초기화
+        _init_as_identity(model.pre_head)
+        if missing:
+            print(f"  미로드 키 {len(missing)}개 (v2 전용 레이어, 기본값 사용)")
+        if unexpected:
+            print(f"  불필요 키 {len(unexpected)}개 (무시)")
+    else:
+        model = get_model(
+            model_name=model_name,
+            in_channels=3,
+            out_channels=1,
+            base_channels=base_channels,
+        )
+        model.load_state_dict(state_dict)
+
     model = model.to(device)
     model.eval()
 
@@ -111,31 +192,22 @@ def predict_single(
     model: torch.nn.Module,
     image_tensor: torch.Tensor,
     device: torch.device,
-    threshold: float = 0.5
+    threshold: float = 0.5,
 ) -> np.ndarray:
     """
-    단일 이미지에 대해 예측을 수행하는 함수
-    
-    Args:
-        model: 학습된 모델
-        image_tensor: 전처리된 이미지 텐서
-        device: 계산을 수행할 디바이스
-        threshold: 이진 마스크 생성 시 확률 threshold
-    
+    단일 이미지에 대해 예측을 수행하는 함수.
+
     Returns:
-        예측된 마스크 (H, W) numpy 배열, 값은 0 또는 255
+        (H, W) uint8 배열, 값은 0 또는 255
     """
     image_tensor = image_tensor.to(device)
-    
     with torch.no_grad():
         logits = model(image_tensor)
+        if isinstance(logits, dict):
+            logits = logits["main"]
         probs = torch.sigmoid(logits)
         mask = (probs > threshold).float().squeeze().cpu().numpy()
-    
-    # 0.0 또는 1.0을 0 또는 255로 변환하여 이미지로 저장 가능하게 함
-    mask = (mask * 255).astype(np.uint8)
-    
-    return mask
+    return (mask * 255).astype(np.uint8)
 
 
 def main() -> None:
@@ -181,22 +253,21 @@ def main() -> None:
         
         # 예측
         mask = predict_single(model, image_tensor, device, threshold=args.threshold)
-        
+
         # 마스크를 원본 이미지 해상도로 복원한 뒤 저장
         output_name = image_path.stem + "_mask.png"
         output_path = output_dir / output_name
-        
-        # PIL 이미지로 변환하여 저장 - NEAREST(최근접 이웃 보간법)을 사용하여 픽셀 값을 그대로 유지하면서 크기 조절
+
         mask_image = Image.fromarray(mask, mode="L").resize(original_size, Image.Resampling.NEAREST)
         mask_image.save(output_path)
-        
+
         predictions.append({
             "image": image_path.name,
             "mask": output_name,
             "output_path": str(output_path),
             "original_size": [original_size[0], original_size[1]],
         })
-        
+
         print(f"  Mask saved to {output_path}")
 
     print("-" * 80)

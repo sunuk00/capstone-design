@@ -18,7 +18,7 @@ from PIL import Image
 import torch
 from torch.utils.data import Dataset
 
-from .augmentation import apply_basic_augmentation
+from .augmentation import apply_basic_augmentation, apply_grayscale_augmentation
 
 try:
     from skimage.morphology import skeletonize as _ski_skeletonize
@@ -44,7 +44,9 @@ def apply_model_preprocess(image_tensor: torch.Tensor, model_name: str) -> torch
     """
     name = model_name.lower()
 
-    if name == "deeplabv3":
+    if name == "deeplabv3" or name.startswith("segformer"):
+        # DeepLabV3(ResNet 백본)와 SegFormer(MiT 백본) 모두 ImageNet으로 사전학습되어
+        # 입력에 ImageNet 정규화(평균·표준편차 보정)를 적용해야 한다.
         mean = IMAGENET_MEAN.to(device=image_tensor.device, dtype=image_tensor.dtype)
         std = IMAGENET_STD.to(device=image_tensor.device, dtype=image_tensor.dtype)
         return (image_tensor - mean) / std
@@ -60,6 +62,7 @@ class MarathonSegDataset(Dataset):
         image_size: int,
         model_name: str = "unet",
         use_augmentation: bool = False,
+        use_grayscale_aug: bool = False,
         use_skeleton: bool = False,
     ) -> None:
         if use_skeleton and not _SKIMAGE_AVAILABLE:
@@ -68,6 +71,7 @@ class MarathonSegDataset(Dataset):
         self.image_size = image_size
         self.model_name = model_name
         self.use_augmentation = use_augmentation
+        self.use_grayscale_aug = use_grayscale_aug
         self.use_skeleton = use_skeleton
 
     def __len__(self) -> int:
@@ -83,6 +87,9 @@ class MarathonSegDataset(Dataset):
 
         if self.use_augmentation:
             image, mask = apply_basic_augmentation(image, mask)
+
+        if self.use_grayscale_aug:
+            image = apply_grayscale_augmentation(image)
 
         # 이미지 크기 조절 시 BILINEAR 보간법을 사용하여 픽셀 사이를 부드럽게 채움
         image = image.resize((self.image_size, self.image_size), Image.Resampling.BILINEAR)

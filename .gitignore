@@ -37,6 +37,8 @@ outputs/**/*.safetensors
 *.log
 
 # Datasets
-data/train/
+data/train_orig/
+data/train_clean/
+data/train_synth/
 
 # TESTING

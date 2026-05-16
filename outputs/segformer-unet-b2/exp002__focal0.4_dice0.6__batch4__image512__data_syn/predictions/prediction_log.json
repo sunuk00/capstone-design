@@ -1,0 +1,100 @@
+{
+    "total_predictions": 9,
+    "model_path": ".\\outputs\\segformer-unet-b2\\exp002__focal0.4_dice0.6__batch4__image512__data_syn\\model_best.pt",
+    "image_dir": "data/test/images",
+    "output_dir": ".\\outputs\\segformer-unet-b2\\exp002__focal0.4_dice0.6__batch4__image512__data_syn\\predictions",
+    "image_size": 512,
+    "threshold": 0.5,
+    "predictions": [
+        {
+            "image": "128.jpg",
+            "mask": "128_mask.png",
+            "prob_map": "128_prob.npy",
+            "output_path": "outputs\\segformer-unet-b2\\exp002__focal0.4_dice0.6__batch4__image512__data_syn\\predictions\\128_mask.png",
+            "original_size": [
+                1000,
+                621
+            ]
+        },
+        {
+            "image": "test001.jpg",
+            "mask": "test001_mask.png",
+            "prob_map": "test001_prob.npy",
+            "output_path": "outputs\\segformer-unet-b2\\exp002__focal0.4_dice0.6__batch4__image512__data_syn\\predictions\\test001_mask.png",
+            "original_size": [
+                943,
+                814
+            ]
+        },
+        {
+            "image": "test002.jpg",
+            "mask": "test002_mask.png",
+            "prob_map": "test002_prob.npy",
+            "output_path": "outputs\\segformer-unet-b2\\exp002__focal0.4_dice0.6__batch4__image512__data_syn\\predictions\\test002_mask.png",
+            "original_size": [
+                700,
+                700
+            ]
+        },
+        {
+            "image": "test003.jpg",
+            "mask": "test003_mask.png",
+            "prob_map": "test003_prob.npy",
+            "output_path": "outputs\\segformer-unet-b2\\exp002__focal0.4_dice0.6__batch4__image512__data_syn\\predictions\\test003_mask.png",
+            "original_size": [
+                600,
+                954
+            ]
+        },
+        {
+            "image": "test004.jpg",
+            "mask": "test004_mask.png",
+            "prob_map": "test004_prob.npy",
+            "output_path": "outputs\\segformer-unet-b2\\exp002__focal0.4_dice0.6__batch4__image512__data_syn\\predictions\\test004_mask.png",
+            "original_size": [
+                1928,
+                1130
+            ]
+        },
+        {
+            "image": "test005.jpg",
+            "mask": "test005_mask.png",
+            "prob_map": "test005_prob.npy",
+            "output_path": "outputs\\segformer-unet-b2\\exp002__focal0.4_dice0.6__batch4__image512__data_syn\\predictions\\test005_mask.png",
+            "original_size": [
+                1206,
+                1207
+            ]
+        },
+        {
+            "image": "test006.jpg",
+            "mask": "test006_mask.png",
+            "prob_map": "test006_prob.npy",
+            "output_path": "outputs\\segformer-unet-b2\\exp002__focal0.4_dice0.6__batch4__image512__data_syn\\predictions\\test006_mask.png",
+            "original_size": [
+                1025,
+                517
+            ]
+        },
+        {
+            "image": "test007.jpg",
+            "mask": "test007_mask.png",
+            "prob_map": "test007_prob.npy",
+            "output_path": "outputs\\segformer-unet-b2\\exp002__focal0.4_dice0.6__batch4__image512__data_syn\\predictions\\test007_mask.png",
+            "original_size": [
+                1397,
+                1030
+            ]
+        },
+        {
+            "image": "test008.png",
+            "mask": "test008_mask.png",
+            "prob_map": "test008_prob.npy",
+            "output_path": "outputs\\segformer-unet-b2\\exp002__focal0.4_dice0.6__batch4__image512__data_syn\\predictions\\test008_mask.png",
+            "original_size": [
+                600,
+                556
+            ]
+        }
+    ]
+}

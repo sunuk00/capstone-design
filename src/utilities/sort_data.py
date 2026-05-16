@@ -24,10 +24,8 @@ def rename_images(folder_path):
             # 원본 파일의 확장자만 따로 추출 (예: .jpg, .png)
             ext = os.path.splitext(filename)[1].lower()
             
-            # 새 파일 이름 생성 (001, 002, 003... 형식)
-            # 무조건 png로 바꾸고 싶다면 ext 대신 '.png'로 적어주시면 됩니다.
-            new_name = f"{count:03d}.png"
-            # new_name = f"{count:03d}{ext}"
+            # 새 파일 이름 생성 (001, 002, 003... 형식, 원본 확장자 유지)
+            new_name = f"{count:03d}{ext}"
             
             # 기존 파일과 새 파일의 전체 경로 생성
             old_file = os.path.join(folder_path, filename)
@@ -50,6 +48,6 @@ def rename_images(folder_path):
 # 실행 부분: 아래 경로를 실제 폴더 경로로 바꿔주세요.
 # 윈도우 환경이라면 경로 앞에 'r'을 붙이는 것이 좋습니다.
 # ==========================================
-target_folder = r"C:\Users\USER\Desktop\Capstone\marathon-path-seg\data\Dataset\masks"  # 예시 경로, 실제 경로로 변경
+target_folder = r"C:\Users\USER\Desktop\Capstone\marathon-path-seg\data\Dataset_Synthetic\masks"  # 예시 경로, 실제 경로로 변경
 
 rename_images(target_folder)
