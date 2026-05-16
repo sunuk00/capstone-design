@@ -22,18 +22,28 @@ from skimage.morphology import skeletonize as _skimage_skeletonize
 def skeletonize_mask(
     mask: np.ndarray,
     spur_length: int = 20,
+    morph_close_size: int = 0,
 ) -> np.ndarray:
     """
     Binary mask를 1픽셀 너비 스켈레톤으로 변환하고 잔가지를 제거한다.
 
     Args:
-        mask       : (H, W) uint8, 경로=255 배경=0
-        spur_length: 이 픽셀 수 미만인 가지를 spur로 간주해 제거.
-                     0이면 제거하지 않는다.
+        mask            : (H, W) uint8, 경로=255 배경=0
+        spur_length     : 이 픽셀 수 미만인 가지를 spur로 간주해 제거.
+                          0이면 제거하지 않는다.
+        morph_close_size: 스켈레톤화 전 morphology closing 커널 크기.
+                          경로를 두껍게 만들어 skeleton 연속성이 향상된다.
+                          0이면 비활성화.
 
     Returns:
         skeleton (H, W) uint8, 스켈레톤=255 배경=0
     """
+    if morph_close_size > 0:
+        kernel = cv2.getStructuringElement(
+            cv2.MORPH_ELLIPSE, (morph_close_size, morph_close_size)
+        )
+        mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel)
+
     skel = _skimage_skeletonize(mask > 127)
 
     if spur_length > 0:

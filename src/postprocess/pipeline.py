@@ -55,6 +55,7 @@ def run_pipeline(
     morph_close_size: int,
     final_size_thresh: int,
     spur_length: int,
+    skel_morph_close: int,
     verbose: bool = True,
 ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, Dict, List, List]:
     """
@@ -128,9 +129,10 @@ def run_pipeline(
     # ── Step 5: 스켈레톤화 + 잔가지 제거 ────────────────────────────────────
     if verbose:
         label = f"spur < {spur_length} px" if spur_length > 0 else "spur 제거 비활성화"
-        print(f"  [Step 5] 스켈레톤화 시작... ({label})")
+        close_label = f"morph_close={skel_morph_close}px" if skel_morph_close > 0 else "morph_close 비활성화"
+        print(f"  [Step 5] 스켈레톤화 시작... ({label} / {close_label})")
 
-    skeleton_mask = skeletonize_mask(final_mask, spur_length=spur_length)
+    skeleton_mask = skeletonize_mask(final_mask, spur_length=spur_length, morph_close_size=skel_morph_close)
 
     if verbose:
         skel_px = int((skeleton_mask > 0).sum())
@@ -295,7 +297,7 @@ def build_parser() -> argparse.ArgumentParser:
                     help="연결 대상 fragment 최소 픽셀 수")
     g3.add_argument("--line-thickness",    type=int,   default=2,
                     help="연결선 두께 (px)")
-    g3.add_argument("--morph-close",       type=int,   default=25,
+    g3.add_argument("--morph-close",       type=int,   default=0,
                     help="morphology closing 커널 크기 (0=비활성화, 권장 3~7)")
 
     g4 = parser.add_argument_group("Step 4 — 잔여 fragment 제거")
@@ -305,6 +307,8 @@ def build_parser() -> argparse.ArgumentParser:
     g5 = parser.add_argument_group("Step 5 — 스켈레톤화 + 잔가지 제거")
     g5.add_argument("--spur-length",       type=int,   default=20,
                     help="이 픽셀 수 미만인 가지를 잔가지로 간주해 제거. 0=제거 안 함.")
+    g5.add_argument("--skel-morph-close",  type=int,   default=0,
+                    help="스켈레톤화 전 morphology closing 커널 크기 (0=비활성화, 권장 3~7).")
 
     parser.add_argument("--no-vis", action="store_true",
                         help="시각화를 저장하지 않는다")
@@ -363,6 +367,7 @@ def main() -> None:
             morph_close_size=args.morph_close,
             final_size_thresh=args.final_min_size,
             spur_length=args.spur_length,
+            skel_morph_close=args.skel_morph_close,
             verbose=True,
         )
 
