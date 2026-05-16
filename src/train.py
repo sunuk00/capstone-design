@@ -63,6 +63,11 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--encoder-lr", type=float, default=1e-5,
                         help="Encoder learning rate for SegFormerUNet (사전학습 가중치 보호용). "
                              "SegFormerUNet 이외의 모델에는 적용되지 않는다.")
+    # SegFormerUNet-specific toggles
+    parser.add_argument("--use-fusion-neck", action="store_true", help="Use FusionNeck for SegFormerUNet (multiscale fusion)")
+    parser.add_argument("--deep-supervision", dest="deep_supervision", action="store_true", help="Enable deep supervision auxiliary heads (default)")
+    parser.add_argument("--no-deep-supervision", dest="deep_supervision", action="store_false", help="Disable deep supervision auxiliary heads")
+    parser.set_defaults(deep_supervision=True)
     parser.add_argument("--seed", type=int, default=42, help="Random seed")
     parser.add_argument("--num-workers", type=int, default=0, help="Number of workers for DataLoader")
     
@@ -232,11 +237,17 @@ def main() -> None:
         print(f"Using device: {device}")
 
     # 모델 초기화
+    model_kwargs = {}
+    if args.model_name.lower().startswith("segformer_unet"):
+        model_kwargs["use_fusion_neck"] = getattr(args, "use_fusion_neck", False)
+        model_kwargs["deep_supervision"] = getattr(args, "deep_supervision", True)
+    
     model = get_model(
         model_name=args.model_name,
         in_channels=3,
         out_channels=1,
         base_channels=args.base_channels,
+        **model_kwargs,
     )
     model = model.to(device)
 

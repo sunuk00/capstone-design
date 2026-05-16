@@ -1,0 +1,44 @@
+{
+  "input_mask": "src\\postprocess\\test_images\\postprocess_results\\test006_mask.png",
+  "total_steps": 9,
+  "initial_foreground_pixels": 6667,
+  "final_foreground_pixels": 830,
+  "sampled_indices": [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8,
+    9
+  ],
+  "pixel_counts": [
+    6667,
+    5712,
+    4803,
+    3912,
+    3027,
+    2160,
+    1345,
+    1056,
+    882,
+    830
+  ],
+  "all_frame_paths": [
+    "src\\postprocess\\test_images\\postprocess_results\\skel_results\\test006_mask\\test006_mask_frames\\frame_000.png",
+    "src\\postprocess\\test_images\\postprocess_results\\skel_results\\test006_mask\\test006_mask_frames\\frame_001.png",
+    "src\\postprocess\\test_images\\postprocess_results\\skel_results\\test006_mask\\test006_mask_frames\\frame_002.png",
+    "src\\postprocess\\test_images\\postprocess_results\\skel_results\\test006_mask\\test006_mask_frames\\frame_003.png",
+    "src\\postprocess\\test_images\\postprocess_results\\skel_results\\test006_mask\\test006_mask_frames\\frame_004.png",
+    "src\\postprocess\\test_images\\postprocess_results\\skel_results\\test006_mask\\test006_mask_frames\\frame_005.png",
+    "src\\postprocess\\test_images\\postprocess_results\\skel_results\\test006_mask\\test006_mask_frames\\frame_006.png",
+    "src\\postprocess\\test_images\\postprocess_results\\skel_results\\test006_mask\\test006_mask_frames\\frame_007.png",
+    "src\\postprocess\\test_images\\postprocess_results\\skel_results\\test006_mask\\test006_mask_frames\\frame_008.png",
+    "src\\postprocess\\test_images\\postprocess_results\\skel_results\\test006_mask\\test006_mask_frames\\frame_009.png"
+  ],
+  "sheet_path": "src\\postprocess\\test_images\\postprocess_results\\skel_results\\test006_mask\\test006_mask_thinning_process_sheet.png",
+  "gif_path": "src\\postprocess\\test_images\\postprocess_results\\skel_results\\test006_mask\\test006_mask_thinning_process.gif"
+}

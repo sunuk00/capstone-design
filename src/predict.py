@@ -145,12 +145,26 @@ def load_model(model_path: str, device: torch.device, base_channels: int = 32) -
         if unexpected:
             print(f"  불필요 키 {len(unexpected)}개 (무시)")
     else:
-        model = get_model(
-            model_name=model_name,
-            in_channels=3,
-            out_channels=1,
-            base_channels=base_channels,
-        )
+        # SegFormerUNet v2: checkpoint에서 아키텍처 플래그 복원
+        if is_segformer_unet:
+            use_fusion_neck  = ckpt_args.get("use_fusion_neck", False)
+            deep_supervision = ckpt_args.get("deep_supervision", True)
+            use_aspp         = ckpt_args.get("use_aspp", not use_fusion_neck)
+            variant = model_name.split("-")[-1] if "-" in model_name else "b2"
+            model = SegFormerUNet(
+                out_channels=1,
+                variant=variant,
+                use_fusion_neck=use_fusion_neck,
+                use_aspp=use_aspp,
+                deep_supervision=deep_supervision,
+            )
+        else:
+            model = get_model(
+                model_name=model_name,
+                in_channels=3,
+                out_channels=1,
+                base_channels=base_channels,
+            )
         model.load_state_dict(state_dict)
 
     model = model.to(device)

@@ -5,13 +5,14 @@ Step 1. Connected component 탐색 + 주경로 선택 (픽셀 크기 기준)
 Step 2. 형태 기반 노이즈 제거 (area × circularity × skeleton_length)
 Step 3. 끊어진 경로 조각 연결 (iterative endpoint-based merging)
 Step 4. 잔여 fragment 제거 (연결되지 못한 소형 조각 제거)
+Step 5. 스켈레톤화 + 잔가지(spur) 제거
 
-각 단계 결과 이미지를 분리 저장하고, 전체 흐름을 5-패널로 시각화한다.
+각 단계 결과 이미지를 분리 저장하고, 전체 흐름을 6-패널로 시각화한다.
 
 실행 예:
   python pipeline.py /path/to/masks
   python pipeline.py /path/to/masks --area-thresh 150 --circ-thresh 0.65 --max-distance 80
-  python pipeline.py /path/to/masks --final-min-size 50
+  python pipeline.py /path/to/masks --spur-length 30
   python pipeline.py /path/to/masks --no-vis
 """
 
@@ -36,6 +37,7 @@ from src.postprocess.components import (
 )
 from src.postprocess.filter_noise import filter_noise
 from src.postprocess.connect_fragments import find_components, iterative_fragment_connection, remove_small_fragments
+from src.postprocess.skeletonize import skeletonize_mask
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -52,8 +54,9 @@ def run_pipeline(
     line_thickness: int,
     morph_close_size: int,
     final_size_thresh: int,
+    spur_length: int,
     verbose: bool = True,
-) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, Dict, List, List]:
+) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, Dict, List, List]:
     """
     전체 후처리 파이프라인을 실행한다.
 
@@ -66,6 +69,7 @@ def run_pipeline(
         filtered_mask : Step 2 노이즈 제거 후 uint8 mask
         connected_mask: Step 3 연결 완료 uint8 mask
         final_mask    : Step 4 잔여 fragment 제거 uint8 mask
+        skeleton_mask : Step 5 스켈레톤 uint8 mask
         features      : 컴포넌트별 feature dict
         noise_labels  : 제거된 레이블 리스트
         connect_log   : fragment 연결 로그
@@ -121,7 +125,18 @@ def run_pipeline(
         removed = (num_conn - 1) - (num_clean - 1)
         print(f"  [Step 4] 잔여 fragment {removed}개 제거 → {num_clean - 1}개")
 
-    return main_mask, noise_mask, filtered_mask, connected_mask, final_mask, features, noise_labels, connect_log
+    # ── Step 5: 스켈레톤화 + 잔가지 제거 ────────────────────────────────────
+    if verbose:
+        label = f"spur < {spur_length} px" if spur_length > 0 else "spur 제거 비활성화"
+        print(f"  [Step 5] 스켈레톤화 시작... ({label})")
+
+    skeleton_mask = skeletonize_mask(final_mask, spur_length=spur_length)
+
+    if verbose:
+        skel_px = int((skeleton_mask > 0).sum())
+        print(f"  [Step 5] 스켈레톤 완료 → {skel_px:,} px")
+
+    return main_mask, noise_mask, filtered_mask, connected_mask, final_mask, skeleton_mask, features, noise_labels, connect_log
 
 
 def _print_feature_table(features: Dict, noise_labels: List) -> None:
@@ -149,6 +164,7 @@ def save_step_images(
     filtered_mask: np.ndarray,
     connected_mask: np.ndarray,
     final_mask: np.ndarray,
+    skeleton_mask: np.ndarray,
     out_dir: Path,
     stem: str,
 ) -> None:
@@ -158,6 +174,7 @@ def save_step_images(
     cv2.imwrite(str(out_dir / f"{stem}_step2_noise_removed.png"), filtered_mask)
     cv2.imwrite(str(out_dir / f"{stem}_step3_connected.png"),     connected_mask)
     cv2.imwrite(str(out_dir / f"{stem}_step4_cleaned.png"),       final_mask)
+    cv2.imwrite(str(out_dir / f"{stem}_step5_skeleton.png"),      skeleton_mask)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -171,25 +188,27 @@ def visualize_pipeline(
     filtered_mask: np.ndarray,
     connected_mask: np.ndarray,
     final_mask: np.ndarray,
+    skeleton_mask: np.ndarray,
     noise_labels: List,
     title: str = "Marathon Path Postprocess Pipeline",
     save_path: Optional[Path] = None,
 ) -> None:
     """
-    5-패널 시각화.
+    6-패널 시각화.
 
     패널 (1) 원본 mask
     패널 (2) 주경로 선택 — 흰색=주경로, 회색=기타 경로 픽셀
     패널 (3) 노이즈 제거 — 빨간색=제거된 노이즈
     패널 (4) Fragment 연결 결과
-    패널 (5) 잔여 fragment 제거 최종 결과 — 빨간색=제거된 조각
+    패널 (5) 잔여 fragment 제거 — 빨간색=제거된 조각
+    패널 (6) 스켈레톤 + 잔가지 제거 최종 결과
     """
     import matplotlib.pyplot as plt
 
     plt.rcParams["font.family"] = "Malgun Gothic"
     plt.rcParams["axes.unicode_minus"] = False
 
-    fig, axes = plt.subplots(1, 5, figsize=(28, 5))
+    fig, axes = plt.subplots(1, 6, figsize=(33, 5))
     H, W = original_mask.shape
 
     # ── (1) 원본 ──────────────────────────────────────────────────────────
@@ -228,6 +247,12 @@ def visualize_pipeline(
     axes[4].imshow(np.clip(overlay5, 0.0, 1.0))
     axes[4].set_title(f"잔여 제거 (Step 4)\n빨간색=제거 / {num_final - 1}개")
     axes[4].axis("off")
+
+    # ── (6) 스켈레톤 ────────────────────────────────────────────────────
+    skel_px = int((skeleton_mask > 0).sum())
+    axes[5].imshow(skeleton_mask, cmap="gray")
+    axes[5].set_title(f"스켈레톤 (Step 5)\n{skel_px:,} px")
+    axes[5].axis("off")
 
     plt.suptitle(title, fontsize=13, fontweight="bold")
     plt.tight_layout()
@@ -270,12 +295,16 @@ def build_parser() -> argparse.ArgumentParser:
                     help="연결 대상 fragment 최소 픽셀 수")
     g3.add_argument("--line-thickness",    type=int,   default=2,
                     help="연결선 두께 (px)")
-    g3.add_argument("--morph-close",       type=int,   default=0,
+    g3.add_argument("--morph-close",       type=int,   default=25,
                     help="morphology closing 커널 크기 (0=비활성화, 권장 3~7)")
 
     g4 = parser.add_argument_group("Step 4 — 잔여 fragment 제거")
     g4.add_argument("--final-min-size",    type=int,   default=0,
                     help="Step 3 후 남은 fragment 중 이 픽셀 수 미만을 제거. 0=주경로만 보존.")
+
+    g5 = parser.add_argument_group("Step 5 — 스켈레톤화 + 잔가지 제거")
+    g5.add_argument("--spur-length",       type=int,   default=20,
+                    help="이 픽셀 수 미만인 가지를 잔가지로 간주해 제거. 0=제거 안 함.")
 
     parser.add_argument("--no-vis", action="store_true",
                         help="시각화를 저장하지 않는다")
@@ -311,6 +340,8 @@ def main() -> None:
           f"line={args.line_thickness} px")
     print(f"[Step 4]  final_min_size={args.final_min_size} px "
           f"({'주경로만 보존' if args.final_min_size == 0 else f'{args.final_min_size} px 미만 제거'})")
+    print(f"[Step 5]  spur_length={args.spur_length} px "
+          f"({'잔가지 제거 비활성화' if args.spur_length == 0 else f'{args.spur_length} px 미만 잔가지 제거'})")
 
     for mask_path in mask_paths:
         print(f"\n{'=' * 60}")
@@ -320,7 +351,7 @@ def main() -> None:
         img = cv2.imread(str(mask_path), cv2.IMREAD_GRAYSCALE)
         _, mask_uint8 = cv2.threshold(img, 127, 255, cv2.THRESH_BINARY)
 
-        (main_mask, noise_mask, filtered_mask, connected_mask, final_mask,
+        (main_mask, noise_mask, filtered_mask, connected_mask, final_mask, skeleton_mask,
          features, noise_labels, connect_log) = run_pipeline(
             mask_uint8,
             area_thresh=args.area_thresh,
@@ -331,23 +362,27 @@ def main() -> None:
             line_thickness=args.line_thickness,
             morph_close_size=args.morph_close,
             final_size_thresh=args.final_min_size,
+            spur_length=args.spur_length,
             verbose=True,
         )
 
         # 단계별 이미지 저장
         save_step_images(
             mask_uint8, main_mask, noise_mask, filtered_mask, connected_mask, final_mask,
-            steps_dir, mask_path.stem,
+            skeleton_mask, steps_dir, mask_path.stem,
         )
 
-        # 최종 결과 저장
+        # 최종 결과 저장 (thick mask + skeleton)
         final_path = out_dir / mask_path.name
+        skel_path  = out_dir / f"{mask_path.stem}_skeleton.png"
         cv2.imwrite(str(final_path), final_mask)
+        cv2.imwrite(str(skel_path),  skeleton_mask)
 
         # 시각화
         if not args.no_vis:
             visualize_pipeline(
-                mask_uint8, main_mask, noise_mask, filtered_mask, connected_mask, final_mask,
+                mask_uint8, main_mask, noise_mask, filtered_mask, connected_mask,
+                final_mask, skeleton_mask,
                 noise_labels,
                 title=f"Pipeline — {mask_path.name}",
                 save_path=vis_dir / f"{mask_path.stem}.png",
@@ -357,13 +392,15 @@ def main() -> None:
         num_orig,  _, _, _ = find_components(mask_uint8)
         num_conn,  _, _, _ = find_components(connected_mask)
         num_final, _, _, _ = find_components(final_mask)
+        skel_px = int((skeleton_mask > 0).sum())
         print(f"\n결과 저장 : {final_path}")
+        print(f"스켈레톤  : {skel_path}")
         print(f"요약      : {num_orig - 1}개 "
               f"→ 노이즈 {len(noise_labels)}개 제거 "
               f"→ {len(connect_log)}회 연결 "
               f"→ {num_conn - 1}개 "
               f"→ 잔여 {(num_conn - 1) - (num_final - 1)}개 제거 "
-              f"→ {num_final - 1}개")
+              f"→ 스켈레톤 {skel_px:,} px")
 
 
 if __name__ == "__main__":

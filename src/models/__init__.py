@@ -10,7 +10,7 @@ from .segformer import SegFormerSeg
 from .segformer_unet import SegFormerUNet
 
 
-def get_model(model_name: str, in_channels: int = 3, out_channels: int = 1, base_channels: int = 32) -> nn.Module:
+def get_model(model_name: str, in_channels: int = 3, out_channels: int = 1, base_channels: int = 32, **kwargs) -> nn.Module:
     name = model_name.lower()
 
     if name == "unet":
@@ -33,7 +33,8 @@ def get_model(model_name: str, in_channels: int = 3, out_channels: int = 1, base
         # "segformer_unet-b0", "segformer_unet-b2", "segformer_unet-b4" 형태를 파싱
         # "-" 구분자가 없으면 기본값 b2 사용
         variant = name.split("-")[1] if "-" in name else "b2"
-        return SegFormerUNet(out_channels=out_channels, variant=variant)
+        # Pass through SegFormerUNet-specific kwargs (use_fusion_neck, deep_supervision, use_aspp, etc.)
+        return SegFormerUNet(out_channels=out_channels, variant=variant, **kwargs)
 
     if name.startswith("segformer"):
         # "segformer-b0", "segformer-b2", "segformer-b4" 형태를 파싱

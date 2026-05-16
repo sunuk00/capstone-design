@@ -351,29 +351,49 @@ def create_outputs(
 def main() -> None:
     """CLI 진입점."""
     args = build_arg_parser().parse_args()
-
     input_mask_path = Path(args.input_mask)
     if not input_mask_path.exists():
         raise FileNotFoundError(f"Input mask not found: {input_mask_path}")
 
     output_dir = Path(args.output_dir)
 
-    # 원본 마스크를 이진화하고 작은 노이즈를 먼저 제거한다.
-    binary_mask = load_binary_mask(input_mask_path, threshold=args.threshold)
-    cleaned_mask = remove_small_components(binary_mask, min_area=args.min_component_area)
+    # If a directory is provided, process all image files inside.
+    if input_mask_path.is_dir():
+        patterns = ("*.png", "*.jpg", "*.jpeg", "*.tif", "*.tiff")
+        files = []
+        for pat in patterns:
+            files.extend(sorted(input_mask_path.glob(pat)))
+        if not files:
+            raise FileNotFoundError(f"No image files found in directory: {input_mask_path}")
 
-    # thinning 전체 과정을 기록하여 단계별 변화를 시각화할 수 있게 한다.
-    _, history, pixel_counts = zhang_suen_with_history(cleaned_mask)
-
-    create_outputs(
-        input_mask_path=input_mask_path,
-        output_dir=output_dir,
-        cleaned_mask=cleaned_mask,
-        history=history,
-        pixel_counts=pixel_counts,
-        max_frames=max(4, args.max_frames),
-        gif_duration_ms=args.gif_duration_ms,
-    )
+        for file_path in files:
+            print(f"Processing: {file_path.name}")
+            binary_mask = load_binary_mask(file_path, threshold=args.threshold)
+            cleaned_mask = remove_small_components(binary_mask, min_area=args.min_component_area)
+            _, history, pixel_counts = zhang_suen_with_history(cleaned_mask)
+            create_outputs(
+                input_mask_path=file_path,
+                output_dir=output_dir / file_path.stem,
+                cleaned_mask=cleaned_mask,
+                history=history,
+                pixel_counts=pixel_counts,
+                max_frames=max(4, args.max_frames),
+                gif_duration_ms=args.gif_duration_ms,
+            )
+    else:
+        # Single file mode
+        binary_mask = load_binary_mask(input_mask_path, threshold=args.threshold)
+        cleaned_mask = remove_small_components(binary_mask, min_area=args.min_component_area)
+        _, history, pixel_counts = zhang_suen_with_history(cleaned_mask)
+        create_outputs(
+            input_mask_path=input_mask_path,
+            output_dir=output_dir,
+            cleaned_mask=cleaned_mask,
+            history=history,
+            pixel_counts=pixel_counts,
+            max_frames=max(4, args.max_frames),
+            gif_duration_ms=args.gif_duration_ms,
+        )
 
 
 if __name__ == "__main__":
