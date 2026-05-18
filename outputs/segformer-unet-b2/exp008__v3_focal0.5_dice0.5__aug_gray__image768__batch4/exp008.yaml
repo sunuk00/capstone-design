@@ -1,0 +1,120 @@
+# ────────────────────────────────────────────────────────────────
+# exp008  SegFormer-UNet v3 · Focal+Dice 손실 · 증강 포함
+# ────────────────────────────────────────────────────────────────
+
+experiment:
+  id: exp008
+  model_version: SegFormer-UNet v3
+  status: in_progress          # in_progress | completed | stopped
+  epochs_planned: 300
+  epochs_done: 62              # 마지막 갱신 기준
+  gpu: NVIDIA GeForce RTX 4070 SUPER
+  note: >
+    v3 아키텍처 첫 Focal+Dice 조합 실험.
+    exp006(BCE+Dice)·exp007(Focal only)과의 손실 함수 비교 목적.
+
+# ── 학습 명령어 ───────────────────────────────────────────────────
+command: >
+  python src/train.py
+  --model-name segformer_unet-b2
+  --data-root .\data\train_synth\
+  --image-size 768
+  --batch-size 4
+  --epochs 300
+  --lr 1e-4
+  --encoder-lr 1e-5
+  --loss-type focal_dice
+  --focal-weight 0.5
+  --focal-alpha 0.75
+  --focal-gamma 2.0
+  --use-augmentation
+  --use-grayscale-aug
+  --deep-supervision
+  --early-stopping-patience 12
+  --output-dir outputs/segformer-unet-b2/exp008__v3_focal0.5_dice0.5__aug_gray__image768__batch4
+
+# ── 모델 설정 ─────────────────────────────────────────────────────
+model:
+  name: SegFormerUNet_v3
+  variant: b2
+  pretrained: true
+  use_aspp: true
+  use_fusion_neck: false
+  deep_supervision: true
+  out_channels: 1
+
+  v3_improvements:
+    - RefinementBlock: "Inverted Bottleneck (×4 expand) + Depthwise Conv + SE Block + Residual"
+    - CBAM: "skip connection에 채널+공간 어텐션 (up1: kernel=7, up2/up3: kernel=3)"
+    - PixelShuffleHead: "H/4 → H/2 → H 서브픽셀 2단계 업샘플링"
+    - DeepSupervisionLoss: "aux 손실 = base_loss + 0.5×Dice (가중치: aux3=0.5, aux2=0.3)"
+    - Optimizer: "3-group AdamW (enc_lower=1e-6, enc_upper=1e-5, decoder=1e-4)"
+
+# ── 하이퍼파라미터 ────────────────────────────────────────────────
+hyperparameters:
+  image_size: 768
+  batch_size: 4
+  epochs: 300
+  optimizer: AdamW
+  lr_groups:
+    encoder_lower_stages_0_1: 1.0e-6    # encoder_lr × 0.1
+    encoder_upper_stages_2_3: 1.0e-5
+    decoder: 1.0e-4
+  weight_decay: 1.0e-4
+
+  loss:
+    type: focal_dice
+    focal_weight: 0.5       # loss = 0.5×Focal + 0.5×Dice
+    focal_alpha: 0.75
+    focal_gamma: 2.0
+    aux3_weight: 0.5
+    aux2_weight: 0.3
+    aux_dice_mix: 0.5       # aux_loss = base_loss + 0.5×Dice
+
+  augmentation:
+    use_augmentation: true
+    use_grayscale_aug: true
+
+  early_stopping_patience: 12
+
+# ── 성능 ─────────────────────────────────────────────────────────
+performance:
+  best:
+    epoch: 50
+    val_loss:  0.06567
+    val_dice:  0.87793
+    val_iou:   0.82105
+    train_loss: 0.19156
+    train_dice: 0.87911
+    train_iou:  0.81595
+
+  last_logged:              # epoch 62 기준
+    epoch: 62
+    val_loss:  0.06623
+    val_dice:  0.87673
+    val_iou:   0.82051
+    train_loss: 0.18116
+    train_dice: 0.88807
+    train_iou:  0.82723
+
+  convergence:
+    ep1_val_dice:  0.63657   # 시작점
+    ep10_val_dice: 0.85270
+    ep25_val_dice: 0.87345
+    ep50_val_dice: 0.87793   # 현재 최고
+    plateau_start: ~42       # val_dice 개선 둔화 시작 에폭 (체감)
+
+# ── 비교 ─────────────────────────────────────────────────────────
+comparison:
+  # 동일 v3 아키텍처, 손실 함수만 다른 실험들과 비교
+  # (기록 후 채워넣기)
+  exp006_bce_dice_best_val_dice:   null   # TODO
+  exp007_focal_only_best_val_dice: null   # TODO
+  exp008_focal_dice_best_val_dice: 0.87793
+
+# ── 파일 경로 ─────────────────────────────────────────────────────
+artifacts:
+  best_checkpoint:  model_best.pt
+  last_checkpoint:  model_last.pt
+  training_log:     training_log.json
+  predictions_dir:  predictions/
