@@ -2,6 +2,7 @@
 경로 스켈레톤화 + 잔가지(spur) 제거.
 
 skimage.morphology.skeletonize 로 1픽셀 너비 중심선을 만든 뒤,
+Zhang-Suen thinning 1회로 연결성을 한 번 정리하고,
 branch point 기반의 graph 분석으로 짧은 잔가지를 반복 제거한다.
 
 알고리즘 (잔가지 탐지):
@@ -17,6 +18,7 @@ Public API:
 import cv2
 import numpy as np
 from skimage.morphology import skeletonize as _skimage_skeletonize
+from skimage.morphology import thin as _skimage_thin
 
 
 def skeletonize_mask(
@@ -35,6 +37,12 @@ def skeletonize_mask(
                           경로를 두껍게 만들어 skeleton 연속성이 향상된다.
                           0이면 비활성화.
 
+    Notes:
+        Zhang-Suen thinning을 1회 적용한 뒤 spur pruning을 수행한다.
+        권장 기본값 예시:
+            - 512 기준  : spur_length=20, morph_close_size=5
+            - 1024 기준 : spur_length=30, morph_close_size=10
+
     Returns:
         skeleton (H, W) uint8, 스켈레톤=255 배경=0
     """
@@ -45,6 +53,7 @@ def skeletonize_mask(
         mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel)
 
     skel = _skimage_skeletonize(mask > 127)
+    skel = _skimage_thin(skel, max_num_iter=1)
 
     if spur_length > 0:
         skel = _prune_spurs(skel, spur_length)

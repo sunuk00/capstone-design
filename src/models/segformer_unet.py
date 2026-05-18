@@ -1,17 +1,16 @@
 """
-SegFormer-UNet v2 — 경계 복원 강화 하이브리드 모델
+SegFormer-UNet v3 — 세밀한 경계 복원 특화 하이브리드 모델
 
-v1 대비 주요 개선 사항:
-    1. Deep Supervision  — 각 디코더 레벨에서 보조 손실을 계산해
-                           경계·형태 정보가 하위 레이어까지 역전파되도록 강제.
-    2. skip_proj 강화    — 1×1 Conv + BN + ReLU 로 skip 특징을 정규화.
-    3. ASPP Bridge       — Stage4 출력에 다중 팽창 합성곱(Atrous Spatial Pyramid Pooling)
-                           적용. 수용 영역을 넓혀 글로벌-로컬 맥락을 동시에 포착.
-    4. FusionNeck 분리   — use_fusion_neck=True 시 h4를 neck 전용으로만 사용하고
-                           up1 skip은 별도 저레벨 특징 브랜치에서 공급.
-                           저레벨 경계 정보 희석 문제를 해결.
-    5. 단계별 업샘플링   — H/4 → H/2 → H 로 2단계 upsample 해
-                           마지막 단계의 해상도 점프 문제 완화.
+v2 대비 주요 개선 사항:
+    1. RefinementBlock    — Inverted Bottleneck (×4 expand) + Depthwise Conv
+                           + SE Block + Residual. 디코더 피처 품질 향상.
+    2. CBAM               — skip connection에 채널+공간 어텐션 적용.
+                           경계 영역에 집중하도록 skip 피처를 선택적으로 강조.
+    3. PixelShuffle Head  — 서브픽셀 컨볼루션 기반 업샘플링.
+                           Bilinear 대비 고주파 경계 복원 강화.
+    4. Dice Loss + DS     — Deep Supervision 보조 손실에 Dice Loss 혼합.
+                           클래스 불균형·경계 감도 향상.
+    5. 3-group Optimizer  — MiT 하위/상위 스테이지 + 디코더 차등 학습률.
 
 ── 아키텍처 개요 ─────────────────────────────────────────────────────────────
 
@@ -23,24 +22,22 @@ v1 대비 주요 개선 사항:
 
 [ASPP Bridge]
     Stage4 출력에 rate=[1,6,12,18] 팽창 합성곱 적용 후 concat → projection
-    → (B, bridge_ch, H/32, W/32)
 
 [FusionNeck (선택적)]
     [h4,h8,h16,h32] → 각각 embed_dim projection 후 H/4 합산
-    → bridge로 사용 (단, up1 skip은 h4 원본 사용)
 
-[디코더] U-Net CNN Decoder
-    up3: bridge  + skip(h16) → (B, D3, H/16)
-    up2: d3      + skip(h8)  → (B, D2, H/8)
-    up1: d2      + skip(h4)  → (B, D1, H/4)
+[디코더] U-Net CNN Decoder (RefinementBlock + CBAM skip)
+    up3: bridge  + CBAM(skip(h16)) → (B, D3, H/16)
+    up2: d3      + CBAM(skip(h8))  → (B, D2, H/8)
+    up1: d2      + CBAM(skip(h4))  → (B, D1, H/4)
 
-[출력 헤드]
-    H/4 → H/2 → H : 2단계 bilinear + 최종 1×1 Conv
+[출력 헤드] PixelShuffle
+    H/4 → H/2 → H : 2단계 PixelShuffle + 최종 1×1 Conv
 
 [Deep Supervision (학습 시)]
     aux3: d3 → 1×1 Conv → logit (H/16 해상도)
     aux2: d2 → 1×1 Conv → logit (H/8  해상도)
-    학습 손실 = main_loss + λ3·aux3_loss + λ2·aux2_loss
+    보조 손실 = base_loss + 0.5 × Dice
 
 ── 출력 규약 ──────────────────────────────────────────────────────────────────
     추론 시: (B, out_channels, H, W) 로짓 텐서
@@ -82,13 +79,114 @@ class ConvBNReLU(nn.Sequential):
         )
 
 
-class ConvBlock(nn.Sequential):
-    """2× (Conv2d + BN + ReLU)"""
-    def __init__(self, in_ch: int, out_ch: int) -> None:
-        super().__init__(
-            ConvBNReLU(in_ch, out_ch),
-            ConvBNReLU(out_ch, out_ch),
+class SEBlock(nn.Module):
+    """Squeeze-Excitation 채널 재보정."""
+    def __init__(self, ch: int, reduction: int = 16) -> None:
+        super().__init__()
+        mid = max(ch // reduction, 1)
+        self.fc = nn.Sequential(
+            nn.AdaptiveAvgPool2d(1),
+            nn.Flatten(),
+            nn.Linear(ch, mid),
+            nn.ReLU(inplace=True),
+            nn.Linear(mid, ch),
+            nn.Sigmoid(),
         )
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        return x * self.fc(x).view(x.size(0), x.size(1), 1, 1)
+
+
+class RefinementBlock(nn.Module):
+    """Inverted Bottleneck (×4 expand) + Depthwise 3×3 + SE + Residual."""
+    def __init__(self, in_ch: int, out_ch: int) -> None:
+        super().__init__()
+        mid = in_ch * 4
+        self.body = nn.Sequential(
+            nn.Conv2d(in_ch, mid, 1, bias=False),
+            nn.BatchNorm2d(mid),
+            nn.ReLU(inplace=True),
+            nn.Conv2d(mid, mid, 3, padding=1, groups=mid, bias=False),
+            nn.BatchNorm2d(mid),
+            nn.ReLU(inplace=True),
+            nn.Conv2d(mid, out_ch, 1, bias=False),
+            nn.BatchNorm2d(out_ch),
+        )
+        self.se = SEBlock(out_ch)
+        self.shortcut = (
+            nn.Sequential(
+                nn.Conv2d(in_ch, out_ch, 1, bias=False),
+                nn.BatchNorm2d(out_ch),
+            )
+            if in_ch != out_ch else nn.Identity()
+        )
+        self.relu = nn.ReLU(inplace=True)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        return self.relu(self.se(self.body(x)) + self.shortcut(x))
+
+
+# ── CBAM ──────────────────────────────────────────────────────────────────────
+
+class _ChannelAttention(nn.Module):
+    def __init__(self, ch: int, reduction: int = 16) -> None:
+        super().__init__()
+        mid = max(ch // reduction, 1)
+        self.mlp = nn.Sequential(
+            nn.Flatten(),
+            nn.Linear(ch, mid),
+            nn.ReLU(inplace=True),
+            nn.Linear(mid, ch),
+        )
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        avg = self.mlp(F.adaptive_avg_pool2d(x, 1))
+        mx  = self.mlp(F.adaptive_max_pool2d(x, 1))
+        return x * torch.sigmoid(avg + mx).view(x.size(0), x.size(1), 1, 1)
+
+
+class _SpatialAttention(nn.Module):
+    def __init__(self, kernel_size: int = 7) -> None:
+        super().__init__()
+        self.conv = nn.Conv2d(2, 1, kernel_size, padding=kernel_size // 2, bias=False)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        avg = x.mean(dim=1, keepdim=True)
+        mx  = x.max(dim=1, keepdim=True).values
+        return x * torch.sigmoid(self.conv(torch.cat([avg, mx], dim=1)))
+
+
+class CBAM(nn.Module):
+    """Convolutional Block Attention Module (채널 → 공간 순차 어텐션)."""
+    def __init__(self, ch: int, spatial_kernel_size: int = 7) -> None:
+        super().__init__()
+        self.ca = _ChannelAttention(ch)
+        self.sa = _SpatialAttention(spatial_kernel_size)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        return self.sa(self.ca(x))
+
+
+# ── PixelShuffle 출력 헤드 ────────────────────────────────────────────────────
+
+class PixelShuffleHead(nn.Module):
+    """2× PixelShuffle 기반 업샘플링 헤드 (H/4 → H/2 → H)."""
+    def __init__(self, in_ch: int, out_ch: int) -> None:
+        super().__init__()
+        self.up1 = nn.Sequential(
+            nn.Conv2d(in_ch, in_ch * 4, 3, padding=1, bias=False),
+            nn.PixelShuffle(2),
+            ConvBNReLU(in_ch, in_ch),
+        )
+        self.up2 = nn.Sequential(
+            nn.Conv2d(in_ch, in_ch * 4, 3, padding=1, bias=False),
+            nn.PixelShuffle(2),
+            ConvBNReLU(in_ch, in_ch),
+        )
+        self.head = nn.Conv2d(in_ch, out_ch, 1)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        return self.head(self.up2(self.up1(x)))
 
 
 # ── ASPP Bridge ────────────────────────────────────────────────────────────────
@@ -99,12 +197,6 @@ class ASPPBridge(nn.Module):
 
     Stage4 출력(H/32)에 다중 수용 영역을 적용해
     글로벌 맥락과 로컬 세부 정보를 동시에 포착한다.
-
-    처리 흐름:
-        x (B, in_ch, H/32, W/32)
-            ↓  rate=[1,6,12,18] 팽창 합성곱 + 글로벌 avg pool → 5 branch
-            ↓  concat (in_ch×5) → 1×1 Conv projection → out_ch
-        출력 (B, out_ch, H/32, W/32)
     """
 
     def __init__(self, in_ch: int, out_ch: int,
@@ -113,40 +205,28 @@ class ASPPBridge(nn.Module):
         self.branches = nn.ModuleList([
             ConvBNReLU(in_ch, out_ch, k=3, p=r, d=r) for r in rates
         ])
-        # 글로벌 평균 풀링 브랜치 (이미지 수준 컨텍스트)
         self.global_pool = nn.Sequential(
             nn.AdaptiveAvgPool2d(1),
             nn.Conv2d(in_ch, out_ch, 1, bias=False),
             nn.BatchNorm2d(out_ch),
             nn.ReLU(inplace=True),
         )
-        # 5 branch 합산 후 projection
         self.proj = ConvBNReLU(out_ch * (len(rates) + 1), out_ch, k=1, p=0)
         self.dropout = nn.Dropout2d(0.1)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         h, w = x.shape[-2:]
         feats = [b(x) for b in self.branches]
-        # 글로벌 풀링 결과를 원본 크기로 복원
         gp = F.interpolate(self.global_pool(x), size=(h, w),
                            mode="bilinear", align_corners=False)
         feats.append(gp)
-        out = self.proj(torch.cat(feats, dim=1))
-        return self.dropout(out)
+        return self.dropout(self.proj(torch.cat(feats, dim=1)))
 
 
 # ── FusionNeck ─────────────────────────────────────────────────────────────────
 
 class FusionNeck(nn.Module):
-    """
-    멀티스케일 특징 융합 모듈.
-
-    4개 MiT 스테이지를 동일 채널(embed_dim)로 projection 후 H/4 해상도로 합산.
-    v2 변경: skip_proj에 BN+ReLU 추가로 feature 분포 정규화.
-
-    ※ use_fusion_neck=True 시 h4는 neck 전용.
-       up1 의 skip connection 은 원본 h4 를 별도로 사용한다.
-    """
+    """멀티스케일 특징 융합 모듈 (4 스테이지 → embed_dim → H/4 합산)."""
 
     def __init__(self, encoder_channels: list, embed_dim: int = 256) -> None:
         super().__init__()
@@ -170,20 +250,13 @@ class FusionNeck(nn.Module):
         return out
 
 
-# ── _UpBlock v2 ────────────────────────────────────────────────────────────────
+# ── _UpBlock v3 (RefinementBlock + CBAM) ──────────────────────────────────────
 
 class _UpBlock(nn.Module):
     """
-    U-Net 스타일 업샘플링 블록 (v2).
+    U-Net 스타일 업샘플링 블록 (v3).
 
-    변경점:
-        - skip_proj: 1×1 Conv → Conv + BN + ReLU (feature 정규화 추가)
-        - align_channels 기본값 = out_channels (명시적으로 동일하게)
-
-    처리 흐름:
-        x  ──→ bilinear upsample (skip 해상도 맞춤)
-        skip → skip_proj (BN+ReLU 포함 1×1 Conv)
-        cat([x, projected_skip]) → ConvBlock
+    skip → skip_proj → CBAM → cat([upsample(x), skip]) → RefinementBlock
     """
 
     def __init__(
@@ -192,29 +265,30 @@ class _UpBlock(nn.Module):
         skip_channels: int,
         out_channels: int,
         align_channels: int | None = None,
+        spatial_kernel_size: int = 7,
     ) -> None:
         super().__init__()
         ac = align_channels if align_channels is not None else out_channels
-        # BN + ReLU 추가로 skip feature 분포 안정화
         self.skip_proj = nn.Sequential(
             nn.Conv2d(skip_channels, ac, kernel_size=1, bias=False),
             nn.BatchNorm2d(ac),
             nn.ReLU(inplace=True),
         )
-        self.conv = ConvBlock(in_channels + ac, out_channels)
+        self.cbam = CBAM(ac, spatial_kernel_size)
+        self.conv = RefinementBlock(in_channels + ac, out_channels)
 
     def forward(self, x: torch.Tensor, skip: torch.Tensor) -> torch.Tensor:
         x    = F.interpolate(x, size=skip.shape[-2:],
                              mode="bilinear", align_corners=False)
-        skip = self.skip_proj(skip)
+        skip = self.cbam(self.skip_proj(skip))
         return self.conv(torch.cat([x, skip], dim=1))
 
 
-# ── SegFormerUNet v2 ───────────────────────────────────────────────────────────
+# ── SegFormerUNet v3 ───────────────────────────────────────────────────────────
 
 class SegFormerUNet(nn.Module):
     """
-    SegFormer-UNet v2 하이브리드 이진 분할 모델.
+    SegFormer-UNet v3 하이브리드 이진 분할 모델.
 
     Args:
         out_channels (int)      : 출력 채널. 이진 분할 기본값 1.
@@ -224,7 +298,7 @@ class SegFormerUNet(nn.Module):
         use_aspp (bool)         : ASPP Bridge 사용 여부.
                                   use_fusion_neck=True 시 자동으로 비활성화.
         deep_supervision (bool) : 학습 시 보조 출력 헤드 활성화 여부.
-                                  추론 시는 항상 main logit만 반환.
+        v1_compat (bool)        : v1 체크포인트 align_channels 호환 모드.
     """
 
     def __init__(
@@ -258,15 +332,15 @@ class SegFormerUNet(nn.Module):
         if pretrained:
             try:
                 self.encoder = _HFEncoder.from_pretrained(model_id)
-                print(f"[SegFormerUNet v2] '{model_id}' 사전학습 가중치 로드 완료.")
+                print(f"[SegFormerUNet v3] '{model_id}' 사전학습 가중치 로드 완료.")
             except Exception as exc:
-                print(f"[SegFormerUNet v2] 경고: 사전학습 로드 실패 → 랜덤 초기화.\n  원인: {exc}")
+                print(f"[SegFormerUNet v3] 경고: 사전학습 로드 실패 → 랜덤 초기화.\n  원인: {exc}")
                 config = SegformerConfig.from_pretrained(model_id)
                 self.encoder = _HFEncoder(config)
         else:
             config = SegformerConfig.from_pretrained(model_id)
             self.encoder = _HFEncoder(config)
-            print(f"[SegFormerUNet v2] '{model_id}' 랜덤 초기화.")
+            print(f"[SegFormerUNet v3] '{model_id}' 랜덤 초기화.")
 
         # ── 채널 설정 ─────────────────────────────────────────────────────
         c1, c2, c3, c4 = _ENCODER_CHANNELS[variant]
@@ -278,10 +352,8 @@ class SegFormerUNet(nn.Module):
         self.deep_supervision = deep_supervision
 
         if use_fusion_neck:
-            # FusionNeck: 4 스테이지 → embed_dim(=d3) 합산
             self.neck = FusionNeck([c1, c2, c3, c4], embed_dim=d3)
             bridge_ch = d3
-            # up1 skip 전용: h4 원본을 별도 projection (희석 방지)
             self.h4_skip_proj = nn.Sequential(
                 nn.Conv2d(c1, c1, 1, bias=False),
                 nn.BatchNorm2d(c1),
@@ -294,26 +366,22 @@ class SegFormerUNet(nn.Module):
             bridge_ch = c4
 
         # ── 디코더 ────────────────────────────────────────────────────────
-        # v1_compat: v1 체크포인트는 skip_proj가 skip_channels 크기로 projection했으므로
-        # align_channels=skip_channels 로 맞춰야 conv 입력 채널 수가 일치한다.
         if v1_compat:
-            self.up3 = _UpBlock(bridge_ch, c3, d3, align_channels=c3)
-            self.up2 = _UpBlock(d3,        c2, d2, align_channels=c2)
-            self.up1 = _UpBlock(d2,        c1, d1, align_channels=c1)
+            self.up3 = _UpBlock(bridge_ch, c3, d3, align_channels=c3, spatial_kernel_size=3)
+            self.up2 = _UpBlock(d3,        c2, d2, align_channels=c2, spatial_kernel_size=3)
+            self.up1 = _UpBlock(d2,        c1, d1, align_channels=c1, spatial_kernel_size=7)
         else:
-            self.up3 = _UpBlock(bridge_ch, c3, d3)
-            self.up2 = _UpBlock(d3,        c2, d2)
-            self.up1 = _UpBlock(d2,        c1, d1)
+            self.up3 = _UpBlock(bridge_ch, c3, d3, spatial_kernel_size=3)
+            self.up2 = _UpBlock(d3,        c2, d2, spatial_kernel_size=3)
+            self.up1 = _UpBlock(d2,        c1, d1, spatial_kernel_size=7)
 
-        # ── 출력 헤드 (2단계 업샘플 + 1×1 conv) ──────────────────────────
-        # H/4 → H/2 중간 정제 conv
-        self.pre_head = ConvBNReLU(d1, d1)
-        self.head     = nn.Conv2d(d1, out_channels, kernel_size=1)
+        # ── PixelShuffle 출력 헤드 (H/4 → H) ─────────────────────────────
+        self.pixel_shuffle_head = PixelShuffleHead(d1, out_channels)
 
         # ── Deep Supervision 보조 헤드 ────────────────────────────────────
         if deep_supervision:
-            self.aux_head3 = nn.Conv2d(d3, out_channels, kernel_size=1)  # H/16
-            self.aux_head2 = nn.Conv2d(d2, out_channels, kernel_size=1)  # H/8
+            self.aux_head3 = nn.Conv2d(d3, out_channels, kernel_size=1)
+            self.aux_head2 = nn.Conv2d(d2, out_channels, kernel_size=1)
 
         self.variant = variant
 
@@ -327,11 +395,7 @@ class SegFormerUNet(nn.Module):
         Returns:
             추론 시 (training=False): (B, out_channels, H, W) 로짓
             학습 시 (training=True, deep_supervision=True):
-                {
-                  "main": (B, C, H,   W  ),   ← 메인 출력
-                  "aux3": (B, C, H/16, W/16),  ← 보조 출력 (깊은 레벨)
-                  "aux2": (B, C, H/8,  W/8 ),  ← 보조 출력 (중간 레벨)
-                }
+                {"main": Tensor, "aux3": Tensor, "aux2": Tensor}
         """
         h, w = x.shape[-2:]
 
@@ -341,45 +405,44 @@ class SegFormerUNet(nn.Module):
 
         # ── Bridge 결정 ───────────────────────────────────────────────────
         if self.use_fusion_neck:
-            bridge = self.neck([h4, h8, h16, h32])   # (B, d3, H/4, W/4)
-            # up1 skip은 h4 원본(경계 정보 보존)을 별도 projection해 사용
+            bridge = self.neck([h4, h8, h16, h32])
             h4_for_skip = self.h4_skip_proj(h4)
         elif self.use_aspp:
-            bridge = self.aspp(h32)                   # (B, d3, H/32, W/32)
+            bridge = self.aspp(h32)
             h4_for_skip = h4
         else:
             bridge = h32
             h4_for_skip = h4
 
         # ── 디코더 ────────────────────────────────────────────────────────
-        d3 = self.up3(bridge, h16)    # (B, D3, H/16, W/16)
-        d2 = self.up2(d3,    h8)      # (B, D2, H/8,  W/8 )
-        d1 = self.up1(d2,    h4_for_skip)  # (B, D1, H/4,  W/4 )
+        d3 = self.up3(bridge, h16)
+        d2 = self.up2(d3,    h8)
+        d1 = self.up1(d2,    h4_for_skip)
 
-        # ── 메인 출력 헤드: H/4 → H/2 → H ────────────────────────────────
-        out = self.pre_head(d1)
-        out = F.interpolate(out, size=(h // 2, w // 2),
-                            mode="bilinear", align_corners=False)
-        out = F.interpolate(out, size=(h, w),
-                            mode="bilinear", align_corners=False)
-        main_logit = self.head(out)
+        # ── 메인 출력: H/4 → H (PixelShuffle 2단계) ──────────────────────
+        main_logit = self.pixel_shuffle_head(d1)
+        # H가 4의 배수가 아닌 경우 입력 해상도 보정
+        if main_logit.shape[-2:] != (h, w):
+            main_logit = F.interpolate(main_logit, size=(h, w),
+                                       mode="bilinear", align_corners=False)
 
         # ── Deep Supervision (학습 시만) ──────────────────────────────────
         if self.training and self.deep_supervision:
             return {
                 "main": main_logit,
-                "aux3": self.aux_head3(d3),   # H/16 해상도 보조 출력
-                "aux2": self.aux_head2(d2),   # H/8  해상도 보조 출력
+                "aux3": self.aux_head3(d3),
+                "aux2": self.aux_head2(d2),
             }
 
         return main_logit
 
     def __repr__(self) -> str:
         return (
-            f"SegFormerUNet_v2(variant='{self.variant}', "
+            f"SegFormerUNet_v3(variant='{self.variant}', "
             f"aspp={self.use_aspp}, "
             f"fusion_neck={self.use_fusion_neck}, "
-            f"deep_sup={self.deep_supervision})"
+            f"deep_sup={self.deep_supervision}, "
+            f"pixel_shuffle=True, cbam=True)"
         )
 
 
@@ -390,22 +453,17 @@ class DeepSupervisionLoss(nn.Module):
     Deep Supervision을 위한 손실 함수 래퍼.
 
     메인 출력 + 보조 출력들의 손실을 가중 합산한다.
-
-    사용 예:
-        criterion = DeepSupervisionLoss(base_loss_fn, aux_weights=(0.4, 0.2))
-        loss = criterion(model_output, target)
-        # model_output: dict (training) 또는 Tensor (inference)
-        # target: (B, 1, H, W) 마스크
+    보조 손실 = base_loss + 0.5 × Dice
 
     Args:
         base_loss (nn.Module): 메인 손실 함수 (BCEWithLogitsLoss 계열).
-        aux_weights (tuple)  : (aux3 가중치, aux2 가중치). 합이 0.6 이하 권장.
+        aux_weights (tuple)  : (aux3 가중치, aux2 가중치).
     """
 
     def __init__(
         self,
         base_loss: nn.Module,
-        aux_weights: tuple = (0.4, 0.2),
+        aux_weights: tuple = (0.5, 0.3),
     ) -> None:
         super().__init__()
         self.base_loss   = base_loss
@@ -415,6 +473,13 @@ class DeepSupervisionLoss(nn.Module):
     def needs_skeleton(self) -> bool:
         """base_loss의 needs_skeleton 속성을 위임 — engine.py의 배치 언팩 분기용."""
         return getattr(self.base_loss, "needs_skeleton", False)
+
+    @staticmethod
+    def dice_loss(logit: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
+        prob  = torch.sigmoid(logit)
+        inter = (prob * target).sum(dim=(2, 3))
+        dice  = 1 - (2 * inter + 1) / (prob.sum(dim=(2, 3)) + target.sum(dim=(2, 3)) + 1)
+        return dice.mean()
 
     def forward(
         self,
@@ -429,21 +494,25 @@ class DeepSupervisionLoss(nn.Module):
             return self.base_loss(output, target)
 
         main = output["main"]
-        # 메인 손실: skels는 원본 해상도에만 적용 (보조 출력과 해상도 불일치)
+        # 메인 손실: skels는 원본 해상도에만 적용
         if skels is not None:
             loss = self.base_loss(main, target, skels)
         else:
             loss = self.base_loss(main, target)
 
-        # 보조 출력: target을 해당 해상도로 다운샘플 후 손실 계산 (skels 미적용)
+        # 보조 출력: base_loss + 0.5 × Dice
         for key, w in zip(("aux3", "aux2"), self.aux_weights):
             if key in output:
-                aux_logit = output[key]
+                aux_logit  = output[key]
                 aux_target = F.interpolate(
                     target.float(), size=aux_logit.shape[-2:],
                     mode="bilinear", align_corners=False,
                 )
-                loss = loss + w * self.base_loss(aux_logit, aux_target)
+                aux_loss = (
+                    self.base_loss(aux_logit, aux_target)
+                    + 0.5 * self.dice_loss(aux_logit, aux_target)
+                )
+                loss = loss + w * aux_loss
 
         return loss
 
@@ -455,16 +524,32 @@ def build_optimizer(model: SegFormerUNet,
                     decoder_lr: float = 1e-4,
                     weight_decay: float = 1e-4) -> torch.optim.AdamW:
     """
-    인코더/디코더 차등 학습률 AdamW 옵티마이저 생성.
+    3-group AdamW 옵티마이저.
 
-    - 인코더(MiT 사전학습): encoder_lr  (낮게 → 가중치 보호)
-    - 디코더 및 부가 모듈 : decoder_lr  (높게 → 빠른 수렴)
+    - 그룹 1 (encoder 하위 스테이지 0,1): encoder_lr × 0.1
+    - 그룹 2 (encoder 상위 스테이지 2,3): encoder_lr
+    - 그룹 3 (디코더 전체):               decoder_lr
     """
-    encoder_params = list(model.encoder.parameters())
-    encoder_ids    = set(id(p) for p in encoder_params)
-    decoder_params = [p for p in model.parameters() if id(p) not in encoder_ids]
+    lower_ids: set = set()
+    upper_ids: set = set()
+
+    enc = model.encoder.encoder
+    for attr in ("patch_embeddings", "block", "layer_norm"):
+        module_list = getattr(enc, attr, None)
+        if module_list is None:
+            continue
+        for idx, stage in enumerate(module_list):
+            target = lower_ids if idx < 2 else upper_ids
+            for p in stage.parameters():
+                target.add(id(p))
+
+    all_enc_ids    = lower_ids | upper_ids
+    lower_params   = [p for p in model.encoder.parameters() if id(p) in lower_ids]
+    upper_params   = [p for p in model.encoder.parameters() if id(p) in upper_ids]
+    decoder_params = [p for p in model.parameters() if id(p) not in all_enc_ids]
 
     return torch.optim.AdamW([
-        {"params": encoder_params, "lr": encoder_lr,  "weight_decay": weight_decay * 0.1},
-        {"params": decoder_params, "lr": decoder_lr,  "weight_decay": weight_decay},
+        {"params": lower_params,   "lr": encoder_lr * 0.1, "weight_decay": weight_decay * 0.1},
+        {"params": upper_params,   "lr": encoder_lr,       "weight_decay": weight_decay * 0.1},
+        {"params": decoder_params, "lr": decoder_lr,       "weight_decay": weight_decay},
     ])

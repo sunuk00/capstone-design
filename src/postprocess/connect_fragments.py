@@ -5,9 +5,9 @@ Main path ↔ Fragment를 반복적으로 연결하여 하나의 연속된 경�
 
 알고리즘:
   1. CC 계산 → 가장 큰 component = main path
-  2. Skeletonize → 8-neighbor 기반 endpoint 탐색
-  3. main endpoint ↔ fragment endpoint 최소 거리 쌍 탐색
-  4. max_distance 이하면 cv2.line으로 연결 + 병합
+    2. Main mask의 거리 변환 맵 계산
+    3. fragment 외곽 픽셀 중 main에 가장 가까운 지점 탐색
+    4. max_distance 이하면 midpoint polyline으로 연결 + 병합
   5. 반복 (main path가 점진적으로 확장됨)
 
 Public API:
@@ -54,7 +54,7 @@ def iterative_fragment_connection(
         initial_mask     : (H, W) uint8, 경로=255
         max_distance     : 최대 연결 거리 (px). 초과 시 중단.
         min_fragment_size: 이 픽셀 수 미만 fragment 무시
-        line_thickness   : endpoint 연결선 두께 (px)
+        line_thickness   : 연결선 두께 (px)
         morph_close_size : morphology closing 커널 크기 (0=비활성화, 권장 3~7)
         verbose          : 반복 진행 상황 출력 여부
 
@@ -94,23 +94,27 @@ def iterative_fragment_connection(
             break
 
         main_mask = (labels == main_label).astype(np.uint8) * 255
-        main_pts = _get_endpoints_or_boundary(main_mask)
-        if len(main_pts) == 0:
+        main_dt, main_dt_labels, main_dt_coords = _build_main_distance_transform(main_mask)
+        if main_dt is None or len(main_dt_coords) == 0:
             break
 
         # 가장 가까운 fragment 탐색
         best: dict = {"dist": float("inf")}
         for frag_lbl in frag_labels:
             frag_mask = (labels == frag_lbl).astype(np.uint8) * 255
-            frag_pts = _get_endpoints_or_boundary(frag_mask)
-            mp, fp, dist = _find_closest_pair(main_pts, frag_pts)
+            frag_pt, mp, dist = _find_distance_transform_connection(
+                main_dt,
+                main_dt_labels,
+                main_dt_coords,
+                frag_mask,
+            )
             if mp is not None and dist < best["dist"]:
                 best = {
                     "dist": dist,
                     "label": frag_lbl,
                     "area": int(stats[frag_lbl, cv2.CC_STAT_AREA]),
                     "main_pt": mp,
-                    "frag_pt": fp,
+                    "frag_pt": frag_pt,
                     "frag_mask": frag_mask,
                 }
 
@@ -120,13 +124,12 @@ def iterative_fragment_connection(
                       f"{best['dist']:.1f} px > {max_distance} px. 종료.")
             break
 
-        # 연결 수행: fragment 병합 + endpoint 간 직선
+        # 연결 수행: fragment 병합 + midpoint polyline
         mask[best["frag_mask"] > 0] = 255
-        cv2.line(
+        _draw_polyline_bridge(
             mask,
-            (int(best["main_pt"][1]), int(best["main_pt"][0])),  # (col, row)
-            (int(best["frag_pt"][1]),  int(best["frag_pt"][0])),
-            255,
+            best["main_pt"],
+            best["frag_pt"],
             line_thickness,
         )
         log.append({
@@ -134,8 +137,8 @@ def iterative_fragment_connection(
             "fragment_label": int(best["label"]),
             "fragment_area_px": best["area"],
             "distance_px": round(best["dist"], 2),
-            "main_endpoint": best["main_pt"].tolist(),
-            "frag_endpoint": best["frag_pt"].tolist(),
+            "main_point": best["main_pt"].tolist(),
+            "frag_point": best["frag_pt"].tolist(),
         })
         if verbose:
             print(f"  [Iter {iteration:>3}] Fragment #{best['label']:>4} 연결 — "
@@ -190,44 +193,72 @@ def _compute_skeleton(mask: np.ndarray) -> np.ndarray:
     return skeletonize(mask > 127)
 
 
-def _detect_endpoints(skeleton: np.ndarray) -> np.ndarray:
-    """8-neighbor 중 연결 수가 1인 픽셀 = endpoint."""
-    skel_u8 = skeleton.astype(np.uint8)
-    kernel = np.array([[1, 1, 1], [1, 0, 1], [1, 1, 1]], dtype=np.uint8)
-    neighbor_count = cv2.filter2D(skel_u8, ddepth=-1, kernel=kernel)
-    endpoint_mask = skeleton & (neighbor_count == 1)
-    rows, cols = np.where(endpoint_mask)
+def _extract_boundary_points(mask: np.ndarray) -> np.ndarray:
+    binary = (mask > 127).astype(np.uint8)
+    if int(binary.sum()) == 0:
+        return np.empty((0, 2), dtype=np.int64)
+    kernel = np.ones((3, 3), dtype=np.uint8)
+    boundary = binary & (cv2.erode(binary, kernel, iterations=1) == 0)
+    rows, cols = np.where(boundary)
     if len(rows) == 0:
         return np.empty((0, 2), dtype=np.int64)
     return np.column_stack([rows, cols])
 
 
-def _get_endpoints_or_boundary(mask: np.ndarray) -> np.ndarray:
-    """
-    Skeleton endpoint를 구한다.
-    없으면 skeleton 전체 픽셀로, 그마저도 없으면 mask 전체 픽셀로 대체한다.
-    """
-    skel = _compute_skeleton(mask)
-    eps = _detect_endpoints(skel)
-    if len(eps) > 0:
-        return eps
-    rows, cols = np.where(skel)
-    if len(rows) > 0:
-        return np.column_stack([rows, cols])
-    rows, cols = np.where(mask > 0)
-    if len(rows) == 0:
-        return np.empty((0, 2), dtype=np.int64)
-    return np.column_stack([rows, cols])
+def _build_main_distance_transform(
+    main_mask: np.ndarray,
+) -> Tuple[Optional[np.ndarray], Optional[np.ndarray], np.ndarray]:
+    binary = (main_mask > 127).astype(np.uint8)
+    if int(binary.sum()) == 0:
+        return None, None, np.empty((0, 2), dtype=np.int64)
+
+    src = (binary == 0).astype(np.uint8)
+    main_dt, main_dt_labels = cv2.distanceTransformWithLabels(
+        src,
+        distanceType=cv2.DIST_L2,
+        maskSize=5,
+        labelType=cv2.DIST_LABEL_PIXEL,
+    )
+    main_dt_coords = np.column_stack(np.where(binary > 0))
+    return main_dt, main_dt_labels, main_dt_coords
 
 
-def _find_closest_pair(
-    pts_a: np.ndarray,
-    pts_b: np.ndarray,
+def _find_distance_transform_connection(
+    main_dt: np.ndarray,
+    main_dt_labels: np.ndarray,
+    main_dt_coords: np.ndarray,
+    frag_mask: np.ndarray,
 ) -> Tuple[Optional[np.ndarray], Optional[np.ndarray], float]:
-    """두 점 집합 사이의 최소 거리 쌍을 브로드캐스트 연산으로 탐색한다."""
-    if len(pts_a) == 0 or len(pts_b) == 0:
+    frag_pts = _extract_boundary_points(frag_mask)
+    if len(frag_pts) == 0:
+        rows, cols = np.where(frag_mask > 0)
+        if len(rows) == 0:
+            return None, None, float("inf")
+        frag_pts = np.column_stack([rows, cols])
+
+    dists = main_dt[frag_pts[:, 0], frag_pts[:, 1]]
+    best_idx = int(np.argmin(dists))
+    frag_pt = frag_pts[best_idx]
+
+    label = int(main_dt_labels[frag_pt[0], frag_pt[1]])
+    main_idx = label - 1
+    if main_idx < 0 or main_idx >= len(main_dt_coords):
         return None, None, float("inf")
-    diff = pts_a[:, np.newaxis, :] - pts_b[np.newaxis, :, :]
-    dists = np.sqrt((diff ** 2).sum(axis=2))
-    idx = np.unravel_index(np.argmin(dists), dists.shape)
-    return pts_a[idx[0]], pts_b[idx[1]], float(dists[idx])
+
+    main_pt = main_dt_coords[main_idx]
+    return frag_pt, main_pt, float(dists[best_idx])
+
+
+def _draw_polyline_bridge(
+    mask: np.ndarray,
+    main_pt: np.ndarray,
+    frag_pt: np.ndarray,
+    line_thickness: int,
+) -> None:
+    mid_pt = np.rint((main_pt.astype(np.float32) + frag_pt.astype(np.float32)) / 2.0).astype(np.int32)
+    pts = np.array([
+        [int(main_pt[1]), int(main_pt[0])],
+        [int(mid_pt[1]), int(mid_pt[0])],
+        [int(frag_pt[1]), int(frag_pt[0])],
+    ], dtype=np.int32)
+    cv2.polylines(mask, [pts], isClosed=False, color=255, thickness=line_thickness)

@@ -2,8 +2,8 @@
 마라톤 경로 후처리 파이프라인
 ------------------------------
 Step 1. Connected component 탐색 + 주경로 선택 (픽셀 크기 기준)
-Step 2. 형태 기반 노이즈 제거 (area × circularity × skeleton_length)
-Step 3. 끊어진 경로 조각 연결 (iterative endpoint-based merging)
+Step 2. 형태 기반 노이즈 제거 (score-based filtering)
+Step 3. 끊어진 경로 조각 연결 (distance-transform based merging)
 Step 4. 잔여 fragment 제거 (연결되지 못한 소형 조각 제거)
 Step 5. 스켈레톤화 + 잔가지(spur) 제거
 
@@ -43,6 +43,81 @@ from src.postprocess.skeletonize import skeletonize_mask
 # ─────────────────────────────────────────────────────────────────────────────
 # 파이프라인 실행
 # ─────────────────────────────────────────────────────────────────────────────
+
+def _resolve_morph_close_size(mask_shape: Tuple[int, int], morph_close_size: Optional[int]) -> int:
+    if morph_close_size is not None:
+        return morph_close_size
+    short_side = min(mask_shape[:2])
+    return max(int(round(short_side * 0.01)), 5)
+
+
+def postprocess_mask(
+    mask_uint8: np.ndarray,
+    area_thresh: int,
+    circ_thresh: float,
+    skel_thresh: int,
+    max_distance: float,
+    min_fragment_size: int,
+    line_thickness: int,
+    final_size_thresh: int,
+    spur_length: int,
+    skel_morph_close: int,
+    morph_close_size: Optional[int] = None,
+    verbose: bool = True,
+) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, Dict, List, List]:
+    """
+    마라톤 경로 후처리의 진입점.
+
+    Args:
+        mask_uint8       : (H, W) uint8, 경로=255 배경=0
+        area_thresh      : Step 2 area threshold
+        circ_thresh      : Step 2 circularity threshold
+        skel_thresh      : Step 2 skeleton-length threshold
+        max_distance     : Step 3 fragment 연결 허용 거리
+        min_fragment_size: Step 3 연결 대상 fragment 최소 크기
+        line_thickness   : Step 3 연결선 두께
+        final_size_thresh: Step 4 fragment 제거 기준
+        spur_length      : Step 5 spur pruning 기준
+        skel_morph_close : Step 5 skeletonization 전 closing 크기
+        morph_close_size  : Step 3 closing 커널 크기. None이면 mask의 단변 길이 1%를 사용하고 최소 5로 보정한다.
+
+    Notes:
+        권장 기본값 예시:
+            - 512 기준  : area_thresh=250, circ_thresh=0.50, skel_thresh=400,
+                          max_distance=150, min_fragment_size=10, line_thickness=2,
+                          morph_close_size=5, final_size_thresh=0, spur_length=20,
+                          skel_morph_close=5
+            - 1024 기준 : area_thresh=500, circ_thresh=0.50, skel_thresh=800,
+                          max_distance=300, min_fragment_size=10, line_thickness=3,
+                          morph_close_size=10, final_size_thresh=0, spur_length=30,
+                          skel_morph_close=10
+
+    Returns:
+        main_mask     : Step 1 주경로 bool mask
+        noise_mask    : Step 2 제거된 노이즈 uint8 mask
+        filtered_mask : Step 2 노이즈 제거 후 uint8 mask
+        connected_mask: Step 3 연결 완료 uint8 mask
+        final_mask    : Step 4 잔여 fragment 제거 uint8 mask
+        skeleton_mask : Step 5 스켈레톤 uint8 mask
+        features      : 컴포넌트별 feature dict
+        noise_labels  : 제거된 레이블 리스트
+        connect_log   : fragment 연결 로그
+    """
+    resolved_morph_close = _resolve_morph_close_size(mask_uint8.shape, morph_close_size)
+    return run_pipeline(
+        mask_uint8,
+        area_thresh=area_thresh,
+        circ_thresh=circ_thresh,
+        skel_thresh=skel_thresh,
+        max_distance=max_distance,
+        min_fragment_size=min_fragment_size,
+        line_thickness=line_thickness,
+        final_size_thresh=final_size_thresh,
+        spur_length=spur_length,
+        skel_morph_close=skel_morph_close,
+        morph_close_size=resolved_morph_close,
+        verbose=verbose,
+    )
 
 def run_pipeline(
     mask_uint8: np.ndarray,
@@ -145,13 +220,14 @@ def _print_feature_table(features: Dict, noise_labels: List) -> None:
     """Step 2 컴포넌트 feature 테이블을 출력한다."""
     noise_set = set(noise_labels)
     print(f"  {'레이블':>6}  {'크기(px)':>9}  {'원형도':>8}  "
-          f"{'스켈레톤':>8}  {'결과':>6}")
+            f"{'스켈레톤':>8}  {'extent':>7}  {'aspect':>7}  {'점수':>4}  {'결과':>6}")
     for feat in sorted(features.values(), key=lambda x: x["area"], reverse=True):
         decision = "noise" if feat["label"] in noise_set else "keep "
         marker = " ← 제거" if feat["label"] in noise_set else ""
         role = "MAIN" if feat["is_main"] else "    "
         print(f"  {feat['label']:>6}  {feat['area']:>9,}  "
               f"{feat['circularity']:>8.4f}  {feat['skeleton_length']:>8}  "
+              f"{feat.get('extent', 0.0):>7.2f}  {feat.get('bbox_aspect_ratio', 0.0):>7.2f}  {feat.get('noise_score', 0):>4}  "
               f"{role} {decision}{marker}")
 
 
@@ -283,7 +359,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
 
     g2 = parser.add_argument_group("Step 2 — 노이즈 제거 threshold")
-    g2.add_argument("--area-thresh",  type=int,   default=250,
+    g2.add_argument("--area-thresh",  type=int,   default=1000,
                     help="이 픽셀 수 미만이면 노이즈 후보")
     g2.add_argument("--circ-thresh",  type=float, default=0.5,
                     help="circularity 초과 시 원형으로 간주 (0~1)")
@@ -292,13 +368,13 @@ def build_parser() -> argparse.ArgumentParser:
 
     g3 = parser.add_argument_group("Step 3 — Fragment 연결 설정")
     g3.add_argument("--max-distance",      type=float, default=150.0,
-                    help="endpoint 간 최대 연결 거리 (px)")
+                    help="fragment 연결 허용 최대 거리 (px)")
     g3.add_argument("--min-fragment-size", type=int,   default=10,
                     help="연결 대상 fragment 최소 픽셀 수")
     g3.add_argument("--line-thickness",    type=int,   default=2,
                     help="연결선 두께 (px)")
-    g3.add_argument("--morph-close",       type=int,   default=0,
-                    help="morphology closing 커널 크기 (0=비활성화, 권장 3~7)")
+    g3.add_argument("--morph-close",       type=int,   default=None,
+                    help="morphology closing 커널 크기. 미지정 시 입력 mask 단변의 1%%(최소 5)로 자동 계산")
 
     g4 = parser.add_argument_group("Step 4 — 잔여 fragment 제거")
     g4.add_argument("--final-min-size",    type=int,   default=0,
@@ -341,7 +417,7 @@ def main() -> None:
           f"circ > {args.circ_thresh}  |  skel < {args.skel_thresh} px")
     print(f"[Step 3]  max_distance={args.max_distance} px  |  "
           f"min_fragment={args.min_fragment_size} px  |  "
-          f"line={args.line_thickness} px")
+            f"line={args.line_thickness} px  |  morph_close={'auto' if args.morph_close is None else args.morph_close}")
     print(f"[Step 4]  final_min_size={args.final_min_size} px "
           f"({'주경로만 보존' if args.final_min_size == 0 else f'{args.final_min_size} px 미만 제거'})")
     print(f"[Step 5]  spur_length={args.spur_length} px "
@@ -356,7 +432,7 @@ def main() -> None:
         _, mask_uint8 = cv2.threshold(img, 127, 255, cv2.THRESH_BINARY)
 
         (main_mask, noise_mask, filtered_mask, connected_mask, final_mask, skeleton_mask,
-         features, noise_labels, connect_log) = run_pipeline(
+         features, noise_labels, connect_log) = postprocess_mask(
             mask_uint8,
             area_thresh=args.area_thresh,
             circ_thresh=args.circ_thresh,

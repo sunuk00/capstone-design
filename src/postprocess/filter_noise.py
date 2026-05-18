@@ -1,10 +1,11 @@
 """
 형태 기반 노이즈 제거 (Shape-based Noise Filtering).
 
-제거 조건 (세 조건 AND):
-    area            < area_thresh    → 픽셀 수가 작고
-    circularity     > circ_thresh    → 원형에 가깝고  (= 4πA / P²)
-    skeleton_length < skel_thresh    → skeleton이 짧다
+제거 조건 (점수 기반, score >= 2 이면 제거):
+    area < area_thresh            → 2점
+    circularity > circ_thresh     → 1점
+    extent > extent_thresh        → 1점
+    skeleton_length < skel_thresh → 1점  (단, 길쭉한 path-like component는 보호)
 
 Public API:
     filter_noise(mask, area_thresh, circ_thresh, skel_thresh)
@@ -30,14 +31,22 @@ def filter_noise(
 
     Args:
         mask        : (H, W) uint8, 경로=255 배경=0
-        area_thresh : 이 픽셀 수 미만이면 노이즈 후보
-        circ_thresh : circularity 가 이 값 초과면 원형으로 간주 (0~1)
-        skel_thresh : skeleton 길이(px)가 이 값 미만이면 노이즈 후보
+        area_thresh : 이 픽셀 수 미만이면 2점
+        circ_thresh : circularity 가 이 값 초과면 1점 (0~1)
+        skel_thresh : skeleton 길이(px)가 이 값 미만이면 1점
+
+    Notes:
+        권장 기본값 예시:
+            - 512 기준  : area_thresh=250, circ_thresh=0.50, skel_thresh=400
+            - 1024 기준 : area_thresh=500, circ_thresh=0.50, skel_thresh=800
 
     Returns:
         filtered_mask: 노이즈 제거된 mask (H, W) uint8
         noise_mask   : 제거된 픽셀만 255인 mask (H, W) uint8
-        features     : {label: {"area", "circularity", "skeleton_length", "is_main"}}
+        features     : {label: {"area", "circularity", "skeleton_length",
+                                "bbox_width", "bbox_height", "bbox_area",
+                                "extent", "bbox_aspect_ratio", "noise_score",
+                                "is_main"}}
         noise_labels : 제거된 레이블 리스트
     """
     num_labels, labels, stats, _ = _find_components(mask)
@@ -93,6 +102,12 @@ def _extract_features(
     features: Dict[int, dict] = {}
     for lbl in range(1, num_labels):
         area = int(stats[lbl, cv2.CC_STAT_AREA])
+        width = int(stats[lbl, cv2.CC_STAT_WIDTH])
+        height = int(stats[lbl, cv2.CC_STAT_HEIGHT])
+        bbox_area = max(width * height, 1)
+        extent = float(area / bbox_area)
+        short_side = max(min(width, height), 1)
+        bbox_aspect_ratio = float(max(width, height) / short_side)
         comp_mask = (labels == lbl).astype(np.uint8) * 255
         skel_len = int(skeletonize(comp_mask > 0).sum())
         features[lbl] = {
@@ -100,6 +115,13 @@ def _extract_features(
             "area": area,
             "circularity": round(_compute_circularity(area, comp_mask), 4),
             "skeleton_length": skel_len,
+            "bbox_width": width,
+            "bbox_height": height,
+            "bbox_area": bbox_area,
+            "extent": round(extent, 4),
+            "bbox_aspect_ratio": round(bbox_aspect_ratio, 4),
+            "noise_score": 0,
+            "noise_reasons": [],
             "is_main": (lbl == main_label),
         }
     return features
@@ -111,12 +133,34 @@ def _classify_noise(
     circ_thresh: float,
     skel_thresh: int,
 ) -> List[int]:
+    extent_thresh = 0.45
+    path_like_aspect_thresh = 2.5
     noise: List[int] = []
     for lbl, feat in features.items():
         if feat["is_main"]:
+            feat["noise_score"] = 0
+            feat["noise_reasons"] = []
             continue
-        if (feat["area"] < area_thresh
-                and feat["circularity"] > circ_thresh
-                and feat["skeleton_length"] < skel_thresh):
+
+        path_like = feat["bbox_aspect_ratio"] >= path_like_aspect_thresh
+        score = 0
+        reasons = []
+
+        if feat["area"] < area_thresh:
+            score += 2
+            reasons.append("area")
+        if feat["circularity"] > circ_thresh:
+            score += 1
+            reasons.append("circularity")
+        if feat["extent"] > extent_thresh and not path_like:
+            score += 1
+            reasons.append("extent")
+        if feat["skeleton_length"] < skel_thresh and feat["extent"] > extent_thresh and not path_like:
+            score += 1
+            reasons.append("skeleton")
+
+        feat["noise_score"] = score
+        feat["noise_reasons"] = reasons
+        if score >= 2:
             noise.append(lbl)
     return noise

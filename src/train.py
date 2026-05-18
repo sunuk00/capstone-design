@@ -25,7 +25,7 @@ if __package__ in (None, ""):
 from src.core import collect_pairs, split_pairs, set_seed, run_epoch, EpochStats, parse_args_with_config
 from src.data import MarathonSegDataset
 from src.models import get_model, SegFormerUNet
-from src.models.segformer_unet import DeepSupervisionLoss
+from src.models.segformer_unet import DeepSupervisionLoss, build_optimizer as build_segformer_optimizer
 # src/losses.py에서 BCELoss, BCEIoULoss, BCEDiceLoss를 가져옴
 from src.losses import BCELoss, BCEIoULoss, BCEDiceLoss, FocalLoss, FocalDiceLoss, SkeletonRecallLoss, SkeletonRecallDiceLoss, BCEDiceSkelRecallLoss, BoundaryLoss, BCEDiceBoundaryLoss
 
@@ -257,24 +257,20 @@ def main() -> None:
     # SegFormerUNet deep supervision: 모델이 dict를 반환하므로 래퍼로 감쌈
     if isinstance(model, SegFormerUNet) and model.deep_supervision:
         criterion = DeepSupervisionLoss(criterion)
-        print("Loss function: DeepSupervisionLoss (main=1.0, aux3=0.4, aux2=0.2) wrapping", args.loss_type)
+        print("Loss function: DeepSupervisionLoss (main=1.0, aux3=0.5, aux2=0.3, +0.5×Dice) wrapping", args.loss_type)
     else:
         print(f"Loss function: {args.loss_type}")
     print(f"Model: {args.model_name}")
 
     # 최적화 함수 설정
-    # SegFormerUNet은 사전학습 인코더와 랜덤 초기화 디코더를 차등 학습률로 학습한다.
-    # - 인코더(encoder): args.encoder_lr (기본 1e-5) — 사전학습 가중치 보호
-    # - 디코더(up1/up2/up3/head 등): args.lr (기본 1e-4) — 랜덤 초기화이므로 높게
+    # SegFormerUNet: 3-group AdamW (인코더 하위/상위 스테이지 + 디코더 차등 학습률)
     if isinstance(model, SegFormerUNet):
-        enc_params = list(model.encoder.parameters())
-        enc_param_ids = {id(p) for p in enc_params}
-        dec_params = [p for p in model.parameters() if id(p) not in enc_param_ids]
-        optimizer = optim.Adam([
-            {"params": enc_params, "lr": args.encoder_lr},
-            {"params": dec_params, "lr": args.lr},
-        ])
-        print(f"Optimizer: encoder lr={args.encoder_lr}, decoder lr={args.lr}")
+        optimizer = build_segformer_optimizer(
+            model,
+            encoder_lr=args.encoder_lr,
+            decoder_lr=args.lr,
+        )
+        print(f"Optimizer: AdamW 3-group (enc_lower={args.encoder_lr*0.1}, enc_upper={args.encoder_lr}, decoder={args.lr})")
     else:
         optimizer = optim.Adam(model.parameters(), lr=args.lr)
 
