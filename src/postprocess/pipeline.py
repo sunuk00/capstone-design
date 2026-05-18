@@ -373,8 +373,8 @@ def build_parser() -> argparse.ArgumentParser:
                     help="연결 대상 fragment 최소 픽셀 수")
     g3.add_argument("--line-thickness",    type=int,   default=2,
                     help="연결선 두께 (px)")
-    g3.add_argument("--morph-close",       type=int,   default=None,
-                    help="morphology closing 커널 크기. 미지정 시 입력 mask 단변의 1%%(최소 5)로 자동 계산")
+    g3.add_argument("--morph-close",       type=int,   default=0,
+                    help="morphology closing 커널 크기. 0=비활성화. 미지정 시 0(비활성화). 양수 지정 시 해당 크기로 closing 적용.")
 
     g4 = parser.add_argument_group("Step 4 — 잔여 fragment 제거")
     g4.add_argument("--final-min-size",    type=int,   default=0,
@@ -417,7 +417,7 @@ def main() -> None:
           f"circ > {args.circ_thresh}  |  skel < {args.skel_thresh} px")
     print(f"[Step 3]  max_distance={args.max_distance} px  |  "
           f"min_fragment={args.min_fragment_size} px  |  "
-            f"line={args.line_thickness} px  |  morph_close={'auto' if args.morph_close is None else args.morph_close}")
+            f"line={args.line_thickness} px  |  morph_close={args.morph_close} ({'비활성화' if args.morph_close == 0 else 'px'})")
     print(f"[Step 4]  final_min_size={args.final_min_size} px "
           f"({'주경로만 보존' if args.final_min_size == 0 else f'{args.final_min_size} px 미만 제거'})")
     print(f"[Step 5]  spur_length={args.spur_length} px "
