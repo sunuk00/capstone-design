@@ -1,0 +1,280 @@
+{
+    "total_predictions": 30,
+    "model_path": ".\\outputs\\unet\\exp021__focal_dice_fw0.4_fa0.8_fg2.0__image768__aug_gray\\model_best.pt",
+    "image_dir": "data/test/images",
+    "output_dir": ".\\outputs\\unet\\exp021__focal_dice_fw0.4_fa0.8_fg2.0__image768__aug_gray\\predictions",
+    "image_size": 768,
+    "threshold": 0.5,
+    "predictions": [
+        {
+            "image": "test001.jpg",
+            "mask": "test001_mask.png",
+            "output_path": "outputs\\unet\\exp021__focal_dice_fw0.4_fa0.8_fg2.0__image768__aug_gray\\predictions\\test001_mask.png",
+            "original_size": [
+                943,
+                814
+            ]
+        },
+        {
+            "image": "test002.jpg",
+            "mask": "test002_mask.png",
+            "output_path": "outputs\\unet\\exp021__focal_dice_fw0.4_fa0.8_fg2.0__image768__aug_gray\\predictions\\test002_mask.png",
+            "original_size": [
+                700,
+                700
+            ]
+        },
+        {
+            "image": "test003.jpg",
+            "mask": "test003_mask.png",
+            "output_path": "outputs\\unet\\exp021__focal_dice_fw0.4_fa0.8_fg2.0__image768__aug_gray\\predictions\\test003_mask.png",
+            "original_size": [
+                600,
+                954
+            ]
+        },
+        {
+            "image": "test004.jpg",
+            "mask": "test004_mask.png",
+            "output_path": "outputs\\unet\\exp021__focal_dice_fw0.4_fa0.8_fg2.0__image768__aug_gray\\predictions\\test004_mask.png",
+            "original_size": [
+                1928,
+                1130
+            ]
+        },
+        {
+            "image": "test005.jpg",
+            "mask": "test005_mask.png",
+            "output_path": "outputs\\unet\\exp021__focal_dice_fw0.4_fa0.8_fg2.0__image768__aug_gray\\predictions\\test005_mask.png",
+            "original_size": [
+                1206,
+                1207
+            ]
+        },
+        {
+            "image": "test006.jpg",
+            "mask": "test006_mask.png",
+            "output_path": "outputs\\unet\\exp021__focal_dice_fw0.4_fa0.8_fg2.0__image768__aug_gray\\predictions\\test006_mask.png",
+            "original_size": [
+                1025,
+                517
+            ]
+        },
+        {
+            "image": "test007.jpg",
+            "mask": "test007_mask.png",
+            "output_path": "outputs\\unet\\exp021__focal_dice_fw0.4_fa0.8_fg2.0__image768__aug_gray\\predictions\\test007_mask.png",
+            "original_size": [
+                1397,
+                1030
+            ]
+        },
+        {
+            "image": "test008.png",
+            "mask": "test008_mask.png",
+            "output_path": "outputs\\unet\\exp021__focal_dice_fw0.4_fa0.8_fg2.0__image768__aug_gray\\predictions\\test008_mask.png",
+            "original_size": [
+                600,
+                556
+            ]
+        },
+        {
+            "image": "test009.jpg",
+            "mask": "test009_mask.png",
+            "output_path": "outputs\\unet\\exp021__focal_dice_fw0.4_fa0.8_fg2.0__image768__aug_gray\\predictions\\test009_mask.png",
+            "original_size": [
+                842,
+                1379
+            ]
+        },
+        {
+            "image": "test010.jpg",
+            "mask": "test010_mask.png",
+            "output_path": "outputs\\unet\\exp021__focal_dice_fw0.4_fa0.8_fg2.0__image768__aug_gray\\predictions\\test010_mask.png",
+            "original_size": [
+                1174,
+                567
+            ]
+        },
+        {
+            "image": "test011.jpg",
+            "mask": "test011_mask.png",
+            "output_path": "outputs\\unet\\exp021__focal_dice_fw0.4_fa0.8_fg2.0__image768__aug_gray\\predictions\\test011_mask.png",
+            "original_size": [
+                2400,
+                3913
+            ]
+        },
+        {
+            "image": "test012.jpg",
+            "mask": "test012_mask.png",
+            "output_path": "outputs\\unet\\exp021__focal_dice_fw0.4_fa0.8_fg2.0__image768__aug_gray\\predictions\\test012_mask.png",
+            "original_size": [
+                1280,
+                698
+            ]
+        },
+        {
+            "image": "test013.jpg",
+            "mask": "test013_mask.png",
+            "output_path": "outputs\\unet\\exp021__focal_dice_fw0.4_fa0.8_fg2.0__image768__aug_gray\\predictions\\test013_mask.png",
+            "original_size": [
+                1600,
+                755
+            ]
+        },
+        {
+            "image": "test014.jpg",
+            "mask": "test014_mask.png",
+            "output_path": "outputs\\unet\\exp021__focal_dice_fw0.4_fa0.8_fg2.0__image768__aug_gray\\predictions\\test014_mask.png",
+            "original_size": [
+                792,
+                612
+            ]
+        },
+        {
+            "image": "test015.jpg",
+            "mask": "test015_mask.png",
+            "output_path": "outputs\\unet\\exp021__focal_dice_fw0.4_fa0.8_fg2.0__image768__aug_gray\\predictions\\test015_mask.png",
+            "original_size": [
+                848,
+                1200
+            ]
+        },
+        {
+            "image": "test016.png",
+            "mask": "test016_mask.png",
+            "output_path": "outputs\\unet\\exp021__focal_dice_fw0.4_fa0.8_fg2.0__image768__aug_gray\\predictions\\test016_mask.png",
+            "original_size": [
+                1009,
+                926
+            ]
+        },
+        {
+            "image": "test017.png",
+            "mask": "test017_mask.png",
+            "output_path": "outputs\\unet\\exp021__focal_dice_fw0.4_fa0.8_fg2.0__image768__aug_gray\\predictions\\test017_mask.png",
+            "original_size": [
+                600,
+                1006
+            ]
+        },
+        {
+            "image": "test018.png",
+            "mask": "test018_mask.png",
+            "output_path": "outputs\\unet\\exp021__focal_dice_fw0.4_fa0.8_fg2.0__image768__aug_gray\\predictions\\test018_mask.png",
+            "original_size": [
+                738,
+                757
+            ]
+        },
+        {
+            "image": "test019.png",
+            "mask": "test019_mask.png",
+            "output_path": "outputs\\unet\\exp021__focal_dice_fw0.4_fa0.8_fg2.0__image768__aug_gray\\predictions\\test019_mask.png",
+            "original_size": [
+                864,
+                883
+            ]
+        },
+        {
+            "image": "test020.png",
+            "mask": "test020_mask.png",
+            "output_path": "outputs\\unet\\exp021__focal_dice_fw0.4_fa0.8_fg2.0__image768__aug_gray\\predictions\\test020_mask.png",
+            "original_size": [
+                744,
+                828
+            ]
+        },
+        {
+            "image": "test021.png",
+            "mask": "test021_mask.png",
+            "output_path": "outputs\\unet\\exp021__focal_dice_fw0.4_fa0.8_fg2.0__image768__aug_gray\\predictions\\test021_mask.png",
+            "original_size": [
+                837,
+                659
+            ]
+        },
+        {
+            "image": "test022.png",
+            "mask": "test022_mask.png",
+            "output_path": "outputs\\unet\\exp021__focal_dice_fw0.4_fa0.8_fg2.0__image768__aug_gray\\predictions\\test022_mask.png",
+            "original_size": [
+                883,
+                1071
+            ]
+        },
+        {
+            "image": "test023.png",
+            "mask": "test023_mask.png",
+            "output_path": "outputs\\unet\\exp021__focal_dice_fw0.4_fa0.8_fg2.0__image768__aug_gray\\predictions\\test023_mask.png",
+            "original_size": [
+                820,
+                1070
+            ]
+        },
+        {
+            "image": "test024.png",
+            "mask": "test024_mask.png",
+            "output_path": "outputs\\unet\\exp021__focal_dice_fw0.4_fa0.8_fg2.0__image768__aug_gray\\predictions\\test024_mask.png",
+            "original_size": [
+                617,
+                652
+            ]
+        },
+        {
+            "image": "test025.png",
+            "mask": "test025_mask.png",
+            "output_path": "outputs\\unet\\exp021__focal_dice_fw0.4_fa0.8_fg2.0__image768__aug_gray\\predictions\\test025_mask.png",
+            "original_size": [
+                873,
+                803
+            ]
+        },
+        {
+            "image": "test026.png",
+            "mask": "test026_mask.png",
+            "output_path": "outputs\\unet\\exp021__focal_dice_fw0.4_fa0.8_fg2.0__image768__aug_gray\\predictions\\test026_mask.png",
+            "original_size": [
+                873,
+                560
+            ]
+        },
+        {
+            "image": "test027.png",
+            "mask": "test027_mask.png",
+            "output_path": "outputs\\unet\\exp021__focal_dice_fw0.4_fa0.8_fg2.0__image768__aug_gray\\predictions\\test027_mask.png",
+            "original_size": [
+                960,
+                747
+            ]
+        },
+        {
+            "image": "test028.png",
+            "mask": "test028_mask.png",
+            "output_path": "outputs\\unet\\exp021__focal_dice_fw0.4_fa0.8_fg2.0__image768__aug_gray\\predictions\\test028_mask.png",
+            "original_size": [
+                609,
+                924
+            ]
+        },
+        {
+            "image": "test029.png",
+            "mask": "test029_mask.png",
+            "output_path": "outputs\\unet\\exp021__focal_dice_fw0.4_fa0.8_fg2.0__image768__aug_gray\\predictions\\test029_mask.png",
+            "original_size": [
+                987,
+                992
+            ]
+        },
+        {
+            "image": "test030.png",
+            "mask": "test030_mask.png",
+            "output_path": "outputs\\unet\\exp021__focal_dice_fw0.4_fa0.8_fg2.0__image768__aug_gray\\predictions\\test030_mask.png",
+            "original_size": [
+                1009,
+                926
+            ]
+        }
+    ]
+}
