@@ -66,7 +66,7 @@ Synthetic route images were additionally generated to address data scarcity and 
 | | Details |
 |---|---|
 | Source | Marathon route map images collected manually |
-| Train | 800+ images |
+| Train & Validation | 814 images (Marathon Routes: 214, Synthetic: 600) |
 | Test  | 30 images |
 | Label | Binary mask (route = white, background = black) |
 
