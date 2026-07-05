@@ -54,7 +54,7 @@ Standard U-Net uses a CNN-based encoder, which has a limited receptive field due
 | **Deep Supervision** | Auxiliary loss heads at H/16 and H/8 decoder stages; forces boundary and shape information to back-propagate to earlier layers during training |
 
 Architecture Figure:
-![SegFormerUNet-b2 Architecture](assets/seg_unet_model_structure.png)
+![SegFormerUNet-b2 Architecture](assets/seg_unet_model_structure(2).png)
 
 ---
 
