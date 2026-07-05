@@ -41,20 +41,28 @@ A hybrid segmentation model designed specifically for marathon route extraction 
 
 ### Why not a standard U-Net?
 
-Standard U-Net uses a CNN-based encoder, which has a limited receptive field due to the local nature of convolution operations. Marathon routes span the entire image as long, thin linear structures — making global context understanding essential. A CNN encoder struggles to capture this long-range dependency.
+Standard U-Net uses a CNN-based encoder, which has a limited receptive field 
+due to the local nature of convolution operations. Marathon routes span the 
+entire image as long, thin linear structures — making global context 
+understanding essential. A CNN encoder struggles to capture this long-range 
+dependency.
 
 ### Why not a standard SegFormer?
 
 SegFormer alone produces coarse segmentation outputs at H/4 resolution, 
-which are then upsampled with simple bilinear interpolation. 
-This is sufficient for general semantic segmentation but falls short 
-for marathon route extraction, where precise boundary recovery 
-along thin, continuous path structures is critical.
+which are then upsampled with simple bilinear interpolation. This is 
+sufficient for general semantic segmentation but falls short for marathon 
+route extraction, where precise boundary recovery along thin, continuous 
+path structures is critical.
 
-By replacing the lightweight MLP decoder with a U-Net-style decoder 
-equipped with attention-based skip connections, the model retains 
-the global context from the Transformer encoder while recovering 
-fine-grained spatial details lost during downsampling.
+### So, why SegFormerUNet-b2?
+
+SegFormerUNet-b2 combines the strengths of both architectures to address 
+these limitations simultaneously. The Transformer-based MiT-b2 encoder 
+captures global context across the entire image via Self-Attention, while 
+the U-Net decoder with attention-based skip connections recovers fine-grained 
+spatial details and precise path boundaries lost during downsampling.
+In short — global understanding from SegFormer, precise restoration from U-Net.
 
 ### Architecture
 
