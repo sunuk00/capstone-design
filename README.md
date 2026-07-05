@@ -93,7 +93,7 @@ Evaluated on 30 test images. **Path F1** is the primary metric, based on skeleto
 > **Path R (Recall)**: Of the ground-truth route, how much did the model successfully find.  
 > **Path F1**: Harmonic mean of Precision and Recall — the primary performance score.
 
-### Qualitative Comparison: `test002`
+### Qualitative Comparison
 
 | Input Image | Ground Truth | UNet Prediction | SegFormer-B2 Prediction | SegFormerUNet-b2 Prediction |
 |---|---|---|---|---|
