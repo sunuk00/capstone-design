@@ -20,7 +20,7 @@ This project presents an end-to-end pipeline that takes a marathon route map ima
 
 <!-- 원본 이미지 / GT 마스크 / 예측 결과 -->
 
-| Original Image | Ground Truth | Prediction(SegFormerUNet-b2) |
+| Original Image | Ground Truth | Prediction (SegFormerUNet-b2) |
 |---|---|---|
 | <img src="data/test/images/test007.jpg" alt="test007 original image" width="240"> | <img src="data/test/masks/test007.png" alt="test007 ground truth mask" width="240"> | <img src="outputs/segformer-unet-b2/exp008__v3_focal0.5_dice0.5__aug_gray__image768__batch4/predictions/test007_mask.png" alt="test007 prediction result" width="240"> |
 
