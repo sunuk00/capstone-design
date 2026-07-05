@@ -72,8 +72,8 @@ Synthetic route images were additionally generated to address data scarcity and 
 ### Sample Data
 | Type | Image | Mask |
 |---|---|---|
-| Real Marathon Route | ![Real Marathon Route](./data/train_synth/images/050.jpg) | ![Real Marathon Route Mask](./data/train_synth/masks/050.png) |
-| Synthetic Route | ![Synthetic Route](./data/train_synth/images/777.png) | ![Synthetic Route Mask](./data/train_synth/masks/777.png) |
+| 마라톤 경로 이미지 | <img src="data/train_orig/images/001.jpg" alt="real marathon route image" width="180" height="180"> | <img src="data/train_orig/masks/001.jpg" alt="real marathon route mask" width="180" height="180"> |
+| 합성 경로 이미지 | <img src="data/train_synth/images/001.jpg" alt="synthetic route image" width="180" height="180"> | <img src="data/train_synth/masks/001.png" alt="synthetic route mask" width="180" height="180"> |
 
 ---
 
@@ -95,7 +95,7 @@ Evaluated on 30 test images. **Path F1** is the primary metric, based on skeleto
 
 | Input Image | Ground Truth | UNet Prediction | SegFormer-B2 Prediction | SegFormerUNet-b2 Prediction |
 |---|---|---|---|---|
-| <img src="data/test/images/test002.jpg" alt="test002 input image" width="180"> | <img src="data/test/masks/test002.png" alt="test002 ground truth mask" width="180"> | <img src="outputs/unet/exp015__focal__alpha0.75__gamma2.0__data_agumentation__new_data/predictions/test002_mask.png" alt="test002 UNet prediction" width="180"> | <img src="outputs/segformer-b2/exp001__bce0.5_dice0.5__pos15__data_augmentation__data_syn/predictions/test002_mask.png" alt="test002 SegFormer-B2 prediction" width="180"> | <img src="outputs/segformer-unet-b2/exp008__v3_focal0.5_dice0.5__aug_gray__image768__batch4/predictions/test002_mask.png" alt="test002 SegFormerUNet-b2 prediction" width="180"> |
+| <img src="data/test/images/test002.jpg" alt="test002 input image" width="180" height="180"> | <img src="data/test/masks/test002.png" alt="test002 ground truth mask" width="180" height="180"> | <img src="outputs/unet/exp015__focal__alpha0.75__gamma2.0__data_agumentation__new_data/predictions/test002_mask.png" alt="test002 UNet prediction" width="180" height="180"> | <img src="outputs/segformer-b2/exp001__bce0.5_dice0.5__pos15__data_augmentation__data_syn/predictions/test002_mask.png" alt="test002 SegFormer-B2 prediction" width="180" height="180"> | <img src="outputs/segformer-unet-b2/exp008__v3_focal0.5_dice0.5__aug_gray__image768__batch4/predictions/test002_mask.png" alt="test002 SegFormerUNet-b2 prediction" width="180" height="180"> |
 
 ---
 
