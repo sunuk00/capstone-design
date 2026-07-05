@@ -70,6 +70,7 @@ Synthetic route images were additionally generated to address data scarcity and 
 | Label | Binary mask (route = white, background = black) |
 
 ### Sample Data
+
 | Type | Image | Mask |
 |---|---|---|
 | 마라톤 경로 이미지 | <img src="data/train_orig/images/001.jpg" alt="real marathon route image" width="180" height="180"> | <img src="data/train_orig/masks/001.jpg" alt="real marathon route mask" width="180" height="180"> |
