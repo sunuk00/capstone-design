@@ -8,7 +8,7 @@ import json
 import re
 import sys
 from pathlib import Path
-from typing import Tuple
+from typing import Optional, Tuple
 
 import numpy as np
 import torch
@@ -75,6 +75,154 @@ def _init_as_identity(module: nn.Sequential) -> None:
         bn.running_var.fill_(1.0)
 
 
+def _infer_checkpoint_model_name(model_path: str, checkpoint: dict, state_dict: dict) -> str:
+    ckpt_args = checkpoint.get("args", {}) or {}
+    model_name = str(ckpt_args.get("model_name", "")).strip()
+    if model_name:
+        return model_name
+
+    path_text = str(model_path).lower()
+    if "segformer-unet" in path_text or "segformer_unet" in path_text:
+        if "b4" in path_text:
+            return "segformer_unet-b4"
+        if "b2" in path_text:
+            return "segformer_unet-b2"
+        if "b0" in path_text:
+            return "segformer_unet-b0"
+        return "segformer_unet-b2"
+
+    if any(key.startswith("encoder.encoder.patch_embeddings") for key in state_dict):
+        return "segformer_unet-b2"
+
+    if any(key.startswith("enc1.") for key in state_dict):
+        return "unet"
+
+    return "unet"
+
+
+def _infer_segformer_unet_config(model_path: str, checkpoint: dict, state_dict: dict) -> dict:
+    ckpt_args = checkpoint.get("args", {}) or {}
+    path_text = str(model_path).lower()
+
+    variant: Optional[str] = None
+    for candidate in ("b4", "b2", "b0"):
+        if candidate in str(ckpt_args.get("model_name", "")).lower() or candidate in path_text:
+            variant = candidate
+            break
+    if variant is None:
+        variant = "b2"
+
+    use_fusion_neck = ckpt_args.get("use_fusion_neck")
+    if use_fusion_neck is None:
+        use_fusion_neck = any("h4_skip_proj" in key or key.startswith("neck.") for key in state_dict)
+
+    use_aspp = ckpt_args.get("use_aspp")
+    if use_aspp is None:
+        use_aspp = any(key.startswith("aspp.") for key in state_dict)
+
+    deep_supervision = ckpt_args.get("deep_supervision")
+    if deep_supervision is None:
+        deep_supervision = any(key.startswith("aux_head") for key in state_dict)
+
+    return {
+        "variant": variant,
+        "use_fusion_neck": bool(use_fusion_neck),
+        "use_aspp": bool(use_aspp),
+        "deep_supervision": bool(deep_supervision),
+    }
+
+
+def _remap_legacy_segformer_keys(state_dict: dict) -> dict:
+    """Older SegFormer checkpoint keys to the current transformers naming."""
+    remapped = {}
+    for key, value in state_dict.items():
+        new_key = key
+
+        new_key = re.sub(
+            r"^encoder\.encoder\.patch_embeddings\.(\d+)\.proj\.",
+            r"encoder.stages.\1.patch_embeddings.proj.",
+            new_key,
+        )
+        new_key = re.sub(
+            r"^encoder\.encoder\.patch_embeddings\.(\d+)\.layer_norm\.",
+            r"encoder.stages.\1.patch_embeddings.layer_norm.",
+            new_key,
+        )
+        new_key = re.sub(
+            r"^encoder\.encoder\.block\.(\d+)\.(\d+)\.layer_norm_1\.",
+            r"encoder.stages.\1.blocks.\2.layernorm_before.",
+            new_key,
+        )
+        new_key = re.sub(
+            r"^encoder\.encoder\.block\.(\d+)\.(\d+)\.attention\.self\.query\.",
+            r"encoder.stages.\1.blocks.\2.attention.q_proj.",
+            new_key,
+        )
+        new_key = re.sub(
+            r"^encoder\.encoder\.block\.(\d+)\.(\d+)\.attention\.self\.key\.",
+            r"encoder.stages.\1.blocks.\2.attention.k_proj.",
+            new_key,
+        )
+        new_key = re.sub(
+            r"^encoder\.encoder\.block\.(\d+)\.(\d+)\.attention\.self\.value\.",
+            r"encoder.stages.\1.blocks.\2.attention.v_proj.",
+            new_key,
+        )
+        new_key = re.sub(
+            r"^encoder\.encoder\.block\.(\d+)\.(\d+)\.attention\.self\.sr\.",
+            r"encoder.stages.\1.blocks.\2.attention.sequence_reduction.sequence_reduction.",
+            new_key,
+        )
+        new_key = re.sub(
+            r"^encoder\.encoder\.block\.(\d+)\.(\d+)\.attention\.self\.layer_norm\.",
+            r"encoder.stages.\1.blocks.\2.attention.sequence_reduction.layer_norm.",
+            new_key,
+        )
+        new_key = re.sub(
+            r"^encoder\.encoder\.block\.(\d+)\.(\d+)\.attention\.output\.dense\.",
+            r"encoder.stages.\1.blocks.\2.attention.o_proj.",
+            new_key,
+        )
+        new_key = re.sub(
+            r"^encoder\.encoder\.block\.(\d+)\.(\d+)\.layer_norm_2\.",
+            r"encoder.stages.\1.blocks.\2.layernorm_after.",
+            new_key,
+        )
+        new_key = re.sub(
+            r"^encoder\.encoder\.block\.(\d+)\.(\d+)\.mlp\.dense1\.",
+            r"encoder.stages.\1.blocks.\2.mlp.fc1.",
+            new_key,
+        )
+        new_key = re.sub(
+            r"^encoder\.encoder\.block\.(\d+)\.(\d+)\.mlp\.dwconv\.dwconv\.",
+            r"encoder.stages.\1.blocks.\2.mlp.dwconv.dwconv.",
+            new_key,
+        )
+        new_key = re.sub(
+            r"^encoder\.encoder\.block\.(\d+)\.(\d+)\.mlp\.dense2\.",
+            r"encoder.stages.\1.blocks.\2.mlp.fc2.",
+            new_key,
+        )
+        new_key = re.sub(
+            r"^encoder\.encoder\.layer_norm\.(\d+)\.",
+            r"encoder.stages.\1.layer_norm.",
+            new_key,
+        )
+
+        remapped[new_key] = value
+
+    return remapped
+
+
+def _detect_segformer_namespace(keys) -> str:
+    for key in keys:
+        if key.startswith("encoder.stages."):
+            return "modern"
+        if key.startswith("encoder.encoder."):
+            return "legacy"
+    return "unknown"
+
+
 
 
 def build_arg_parser() -> argparse.ArgumentParser:
@@ -120,6 +268,7 @@ def load_model(model_path: str, device: torch.device, base_channels: int = 32) -
     ckpt_args   = checkpoint.get("args", {})
     model_name  = ckpt_args.get("model_name", "unet")
     state_dict  = checkpoint["model_state_dict"]
+    model_name  = _infer_checkpoint_model_name(model_path, checkpoint, state_dict)
 
     # ── v1 SegFormerUNet 체크포인트 감지 ─────────────────────────────────────
     # v1은 ConvBlock.block.N 경로를 사용; v2는 ConvBNReLU 중첩 구조
@@ -132,6 +281,7 @@ def load_model(model_path: str, device: torch.device, base_channels: int = 32) -
         model = SegFormerUNet(
             out_channels=1,
             variant=variant,
+            pretrained=False,
             use_aspp=False,         # v1에 없던 ASPP 비활성화
             deep_supervision=False, # v1에 없던 보조 헤드 비활성화
             v1_compat=True,         # v1은 skip_proj가 skip_ch→skip_ch 크기로 projection
@@ -147,17 +297,19 @@ def load_model(model_path: str, device: torch.device, base_channels: int = 32) -
     else:
         # SegFormerUNet v2: checkpoint에서 아키텍처 플래그 복원
         if is_segformer_unet:
-            use_fusion_neck  = ckpt_args.get("use_fusion_neck", False)
-            deep_supervision = ckpt_args.get("deep_supervision", True)
-            use_aspp         = ckpt_args.get("use_aspp", not use_fusion_neck)
-            variant = model_name.split("-")[-1] if "-" in model_name else "b2"
+            segformer_cfg = _infer_segformer_unet_config(model_path, checkpoint, state_dict)
             model = SegFormerUNet(
                 out_channels=1,
-                variant=variant,
-                use_fusion_neck=use_fusion_neck,
-                use_aspp=use_aspp,
-                deep_supervision=deep_supervision,
+                variant=segformer_cfg["variant"],
+                pretrained=False,
+                use_fusion_neck=segformer_cfg["use_fusion_neck"],
+                use_aspp=segformer_cfg["use_aspp"],
+                deep_supervision=segformer_cfg["deep_supervision"],
             )
+            model_namespace = _detect_segformer_namespace(model.state_dict().keys())
+            ckpt_namespace = _detect_segformer_namespace(state_dict.keys())
+            if model_namespace == "modern" and ckpt_namespace == "legacy":
+                state_dict = _remap_legacy_segformer_keys(state_dict)
         else:
             model = get_model(
                 model_name=model_name,
