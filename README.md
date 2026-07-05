@@ -77,6 +77,7 @@ Synthetic route images were additionally generated to address data scarcity and 
 | Real Marathon Route | <img src="assets/050.jpg" alt="real marathon route image" width="180" height="180"> | <img src="assets/050.png" alt="real marathon route mask" width="180" height="180"> |
 | Synthetic Route Image | <img src="assets/777.png" alt="synthetic route image" width="180" height="180"> | <img src="assets/777_mask.png" alt="synthetic route mask" width="180" height="180"> |
 
+---
 
 ## 📊 Evaluation Results
 
@@ -98,57 +99,6 @@ Evaluated on 30 test images. **Path F1** is the primary metric, based on skeleto
 |---|---|---|---|---|
 | <img src="data/test/images/test002.jpg" alt="test002 input image" width="180" height="180"> | <img src="data/test/masks/test002.png" alt="test002 ground truth mask" width="180" height="180"> | <img src="outputs/unet/exp015__focal__alpha0.75__gamma2.0__data_agumentation__new_data/predictions/test002_mask.png" alt="test002 UNet prediction" width="180" height="180"> | <img src="outputs/segformer-b2/exp001__bce0.5_dice0.5__pos15__data_augmentation__data_syn/predictions/test002_mask.png" alt="test002 SegFormer-B2 prediction" width="180" height="180"> | <img src="outputs/segformer-unet-b2/exp008__v3_focal0.5_dice0.5__aug_gray__image768__batch4/predictions/test002_mask.png" alt="test002 SegFormerUNet-b2 prediction" width="180" height="180"> |
  
----
-
-## 🛠️ Installation
-
-```bash
-git clone https://github.com/sunuk00/capstone-design.git
-cd capstone-design
-pip install -r requirements.txt
-```
-
-**Key dependencies**
-```
-torch >= 2.0
-transformers
-albumentations
-scikit-image
-opencv-python
-matplotlib
-tqdm
-```
-
----
-
-## 🚀 Usage
-
-### Run Evaluation
-
-```bash
-python src/evaluation.py \
-  --unet_weights      weights/unet_best.pt \
-  --segformer_weights weights/segformer_best.pt \
-  --sfunet_weights    weights/segformer_unet_b2_best.pt
-```
-
-Evaluate a single model:
-```bash
-python src/evaluation.py --sfunet_weights weights/segformer_unet_b2_best.pt
-```
-
-### Output
-
-```
-eval_results/
-├── eval_results.csv       # Per-image and average metrics
-├── paper_table.png        # Publication-style result table
-└── viz/
-    ├── UNet/
-    ├── SegFormer/
-    └── SegFormerUNet-b2/  # Prediction overlays per image
-```
-
 ---
 
 ## 📁 Project Structure
