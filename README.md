@@ -16,37 +16,22 @@ This project presents an end-to-end pipeline that takes a marathon route map ima
 - **AI Segmentation (this repo)** — Extracts the route mask from the map image using a custom hybrid model (SegFormerUNet-b2), then refines it into a pixel coordinate list via post-processing.
 - **[Coordinate Transformation (teammate)](https://github.com/jwonni/Capston-A-man-of-Gyeongsang-do.git)** — Applies OCR-based anchor detection and homography transformation to convert pixel coordinates into GPS coordinates, then exports a GPX file.
 
+### Result Preview
+
+<!-- 원본 이미지 / GT 마스크 / 예측 결과 -->
+
+| Original Image | Ground Truth | Prediction |
+|---|---|---|
+| <img src="data/test/images/test007.jpg" alt="test007 original image" width="240"> | <img src="data/test/masks/test007.png" alt="test007 ground truth mask" width="240"> | <img src="outputs/segformer-unet-b2/exp008__v3_focal0.5_dice0.5__aug_gray__image768__batch4/predictions/test007_mask.png" alt="test007 prediction result" width="240"> |
+
+
 ---
 
 ## 🗺️ System Architecture
 
-```
-Marathon Route Image (JPG/PNG)
-        │
-        ▼
-┌───────────────────┐
-│   Preprocessing   │  Resize → Normalize → Tensor
-└───────────────────┘
-        │
-        ▼
-┌───────────────────┐
-│  SegFormerUNet-b2 │  MiT-b2 Encoder + ASPP Bridge + Attention Skip + U-Net Decoder
-└───────────────────┘
-        │
-        ▼
-┌───────────────────┐
-│   Post-processing │  Connected Component Analysis → Skeletonization → (x, y) CSV
-└───────────────────┘
-        │
-        ▼
-┌─────────────────────────┐
-│  Coordinate Transform   │  OCR (Hi-SAM + PaddleOCR) → Homography → GPX Export
-│  (teammate's component) │
-└─────────────────────────┘
-        │
-        ▼
-      GPX File → Overlay on Map
-```
+[![Pipeline Overview](assets/pipline.png)](assets/pipeline_overview.png)
+
+The red-highlighted part indicates this repository.
 
 ---
 
@@ -66,21 +51,29 @@ Standard U-Net uses a CNN-based encoder, which has a limited receptive field due
 | **ASPP Bridge** | Multi-scale feature extraction with dilated convolutions (rates: 1, 6, 12, 18) |
 | **Attention Skip Connection** | Suppresses background noise; passes only refined path features to the decoder |
 | **U-Net Decoder** | Restores spatial resolution and reconstructs the route mask pixel by pixel |
-
-```
-Input (B, 3, H, W)
-    │
-    ├─ MiT-b2 Encoder ──→ h4 (H/4), h8 (H/8), h16 (H/16), h32 (H/32)
-    │
-    ├─ ASPP Bridge ──→ Multi-scale context from h32
-    │
-    ├─ Decoder (up3 → up2 → up1) with Attention Skip Connections
-    │
-    └─ Output (B, 1, H, W) binary mask logit
-```
+| **Deep Supervision** | Auxiliary loss heads at H/16 and H/8 decoder stages; forces boundary and shape information to back-propagate to earlier layers during training |
 
 Architecture Figure:
 ![SegFormerUNet-b2 Architecture](assets/seg_unet_model_structure.png)
+
+---
+
+## 📂 Dataset
+Real marathon route map images were collected manually. 
+Synthetic route images were additionally generated to address data scarcity and improve model generalization.
+
+| | Details |
+|---|---|
+| Source | Marathon route map images collected manually |
+| Train | 800+ images |
+| Test  | 30 images |
+| Label | Binary mask (route = white, background = black) |
+
+### Sample Data
+| Type | Image | Mask |
+|---|---|---|
+| Real Marathon Route | ![](data/train_synth/images/050.jpg) | ![](data/train_synth/masks/050.png) |
+| Synthetic Route | ![](data/train_synth/images/777.png) | ![](data/train_synth/masks/777.png) |
 
 ---
 
@@ -97,6 +90,12 @@ Evaluated on 30 test images. **Path F1** is the primary metric, based on skeleto
 > **Path P (Precision)**: Of the pixels the model predicted as the route, how many are actually on the correct route.  
 > **Path R (Recall)**: Of the ground-truth route, how much did the model successfully find.  
 > **Path F1**: Harmonic mean of Precision and Recall — the primary performance score.
+
+### Qualitative Comparison: `test002`
+
+| Input Image | Ground Truth | UNet Prediction | SegFormer-B2 Prediction | SegFormerUNet-b2 Prediction |
+|---|---|---|---|---|
+| <img src="data/test/images/test002.jpg" alt="test002 input image" width="180"> | <img src="data/test/masks/test002.png" alt="test002 ground truth mask" width="180"> | <img src="outputs/unet/exp015__focal__alpha0.75__gamma2.0__data_agumentation__new_data/predictions/test002_mask.png" alt="test002 UNet prediction" width="180"> | <img src="outputs/segformer-b2/exp001__bce0.5_dice0.5__pos15__data_augmentation__data_syn/predictions/test002_mask.png" alt="test002 SegFormer-B2 prediction" width="180"> | <img src="outputs/segformer-unet-b2/exp008__v3_focal0.5_dice0.5__aug_gray__image768__batch4/predictions/test002_mask.png" alt="test002 SegFormerUNet-b2 prediction" width="180"> |
 
 ---
 
@@ -162,12 +161,25 @@ capstone-design/
 │   │   └── segformer_unet.py      # SegFormerUNet-b2
 │   ├── evaluation.py              # Evaluation pipeline
 │   └── postprocess.py             # Post-processing pipeline
+├── configs/                       # Training / inference YAML configs
 ├── data/
 │   └── test/
 │       ├── images/                # Test images
 │       └── masks/                 # Ground truth masks
-├── weights/                       # Model checkpoints
-├── eval_results/                  # Evaluation outputs
+├── outputs/                       # Experiment outputs and checkpoints
+│   ├── unet/
+│   │   └── exp*/                  # e.g. model_best.pt, model_last.pt
+│   ├── segformer/
+│   │   └── exp*/
+│   └── segformer-unet-b2/
+│       ├── exp*/                  # model_best.pt, training_log.json
+│       └── exp*/predictions/      # predicted masks + prediction_log.json
+├── eval_results/                  # Evaluation outputs and visualizations
+│   ├── eval_results.csv
+│   └── viz/
+│       ├── UNet/
+│       ├── SegFormer/
+│       └── SegFormerUNet-b2/
 ├── requirements.txt
 └── README.md
 ```
@@ -178,7 +190,7 @@ capstone-design/
 
 | Name | Role |
 |---|---|
-| **선태욱** | AI pipeline — data preprocessing, model design & training (UNet / SegFormer / SegFormerUNet-b2), post-processing, evaluation |
+| **ME**| AI pipeline — data preprocessing, model design & training (UNet / SegFormer / SegFormerUNet-b2), post-processing, evaluation |
 | Teammate | Coordinate transformation — OCR-based anchor detection (Hi-SAM + PaddleOCR), homography matrix computation, GPX export |
 
 ---
