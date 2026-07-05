@@ -73,10 +73,9 @@ Synthetic route images were additionally generated to address data scarcity and 
 
 | Type | Image | Mask |
 |---|---|---|
-| Real Marathon Route | <img src="data/train_synth/images/050.jpg" alt="real marathon route image" width="180" height="180"> | <img src="data/train_synth/masks/050.png" alt="real marathon route mask" width="180" height="180"> |
-| Synthetic Route Image | <img src="data/train_synth/images/777.png" alt="synthetic route image" width="180" height="180"> | <img src="data/train_synth/masks/777.png" alt="synthetic route mask" width="180" height="180"> |
+| Real Marathon Route | <img src="/data/train_synth/images/050.jpg" alt="real marathon route image" width="180" height="180"> | <img src="/data/train_synth/masks/050.png" alt="real marathon route mask" width="180" height="180"> |
+| Synthetic Route Image | <img src="/data/train_synth/images/777.png" alt="synthetic route image" width="180" height="180"> | <img src="/data/train_synth/masks/777.png" alt="synthetic route mask" width="180" height="180"> |
 
----
 
 ## 📊 Evaluation Results
 
