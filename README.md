@@ -5,16 +5,15 @@
 ![HuggingFace](https://img.shields.io/badge/HuggingFace-Transformers-FFD21E?logo=huggingface)
 ![OpenCV](https://img.shields.io/badge/OpenCV-4.x-5C3EE8?logo=opencv)
 
-> Automatically extract marathon route paths from map images and visualize the extracted route in a demo web app.
+> Automatically extract marathon route paths from map images and convert them into GPS coordinates for GPX file generation.
 
 ---
 
 ## 📌 Overview
 
-This project presents an end-to-end pipeline that takes a marathon route map image as input and extracts the route as a pixel path in a demo web app. The pipeline consists of two major components:
+This project presents an end-to-end pipeline that takes a marathon route map image as input and outputs a GPX file representing the real-world geographic path. The pipeline consists of two major components:
 
 - **AI Segmentation (this repo)** — Extracts the route mask from the map image using a custom hybrid model (SegFormerUNet-b2), then refines it into a pixel coordinate list via post-processing.
-- **Demo Web App** — Provides a browser UI for image upload, route prediction, post-processing, ordered path extraction, and overlay visualization.
 - **[Coordinate Transformation (teammate)](https://github.com/jwonni/Capston-A-man-of-Gyeongsang-do.git)** — Applies OCR-based anchor detection and homography transformation to convert pixel coordinates into GPS coordinates, then exports a GPX file.
 
 ### Result Preview
