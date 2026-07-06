@@ -181,6 +181,7 @@ You should rename the downloaded files as follows:
 ### Demo UI screenshots
 
 <img src="assets/demo_ui.png" alt="demo UI screenshot" width="800">
+<img src="assets/demo_ui2.png" alt="demo UI screenshot" width="800">
 
 ---
 
