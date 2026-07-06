@@ -15,6 +15,7 @@ This project presents an end-to-end pipeline that takes a marathon route map ima
 
 - **AI Segmentation (this repo)** — Extracts the route mask from the map image using a custom hybrid model (SegFormerUNet-b2), then refines it into a pixel coordinate list via post-processing.
 - **Demo Web App** — Provides a browser UI for image upload, route prediction, post-processing, ordered path extraction, and overlay visualization.
+- **[Coordinate Transformation (teammate)](https://github.com/jwonni/Capston-A-man-of-Gyeongsang-do.git)** — Applies OCR-based anchor detection and homography transformation to convert pixel coordinates into GPS coordinates, then exports a GPX file.
 
 ### Result Preview
 
