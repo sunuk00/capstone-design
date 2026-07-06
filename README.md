@@ -178,9 +178,13 @@ You should rename the downloaded files as follows:
 - `POST /api/postprocess` - route mask cleanup and skeletonization
 - `POST /api/auto_extract_path` - automatic ordered path extraction
 
-### Demo UI screenshots
+### Demo UI screenshots & Video
 
 <img src="assets/demo_ui.png" alt="demo UI screenshot" width="800">
+
+<video width="800" height="600" controls>
+  <source src="assets/demo_video.mp4" type="video/mp4">
+</video>
 
 ---
 
