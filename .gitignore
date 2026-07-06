@@ -33,6 +33,8 @@ outputs/**/*.ckpt
 outputs/**/*.bin
 outputs/**/*.safetensors
 
+app/weights/*.pt
+
 # Notebook/runtime temp
 *.log
 

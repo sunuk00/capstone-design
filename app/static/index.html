@@ -1,0 +1,588 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Marathon Route Extraction</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <style>
+        :root {
+            --bg:       #f0f4f8;
+            --panel:    #ffffff;
+            --panel-2:  #f8fafc;
+            --line:     rgba(0,0,0,0.09);
+            --text:     #1e293b;
+            --muted:    #64748b;
+            --accent:   #3b82f6;
+            --accent-2: #1d4ed8;
+            --danger:   #ef4444;
+            --success:  #16a34a;
+        }
+
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+
+        body {
+            color: var(--text);
+            background:
+                radial-gradient(circle at 10% 0%,  rgba(59,130,246,0.08), transparent 26%),
+                radial-gradient(circle at 90% 100%, rgba(29,78,216,0.06),  transparent 30%),
+                var(--bg);
+            font-family: "Segoe UI", "Apple SD Gothic Neo", sans-serif;
+            min-height: 100vh;
+        }
+
+        .app {
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 20px;
+            display: grid;
+            gap: 16px;
+        }
+
+        /* ── Header ─────────────────────────────────────────────────────── */
+        .app-header {
+            background: rgba(255,255,255,0.72);
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255,255,255,0.8);
+            border-radius: 20px;
+            padding: 18px 20px;
+            box-shadow: 0 10px 30px rgba(15,23,42,0.06);
+        }
+        .app-header h1 { font-size: clamp(1.6rem, 2.2vw, 2.4rem); letter-spacing: -0.03em; }
+        .app-header .subtitle { margin-top: 6px; color: var(--muted); font-size: 0.92rem; }
+
+        /* ── Main 2-column grid ─────────────────────────────────────────── */
+        .main-grid {
+            display: grid;
+            grid-template-columns: minmax(0, 1.25fr) minmax(360px, 0.75fr);
+            gap: 16px;
+            align-items: start;
+        }
+
+        /* ── Left column ────────────────────────────────────────────────── */
+        .left-col { display: flex; flex-direction: column; gap: 12px; }
+
+        /* Upload area */
+        .upload-area {
+            border-radius: 14px;
+            background: rgba(59,130,246,0.04);
+            padding: 20px;
+            text-align: center;
+            cursor: pointer;
+            transition: background 0.18s;
+            min-height: 400px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 6px;
+        }
+        .upload-area:hover, .upload-area.drag-over { background: rgba(59,130,246,0.09); }
+        .upload-area.has-image {
+            border-style: solid;
+            border-color: rgba(22,163,74,0.5);
+            padding: 10px;
+            justify-content: stretch;
+        }
+        .upload-area.has-image img {
+            display: block; width: 100%; flex: 1; min-height: 0;
+            object-fit: contain; border-radius: 8px;
+        }
+        .upload-title { font-weight: 700; font-size: 0.95rem; }
+        .upload-hint  { color: var(--muted); font-size: 0.82rem; }
+
+        /* Pipeline stages */
+        .pipeline { display: flex; flex-direction: column; gap: 0; }
+
+        .stage-card {
+            background: var(--panel);
+            border: 1px solid var(--line);
+            border-radius: 14px;
+            padding: 12px 14px;
+            transition: border-color 0.2s;
+            box-shadow: 0 1px 4px rgba(0,0,0,0.06);
+        }
+        .stage-card.running { border-color: rgba(59,130,246,0.5); }
+        .stage-card.success { border-color: rgba(22,163,74,0.4); }
+        .stage-card.error   { border-color: rgba(239,68,68,0.45); }
+
+        .stage-connector {
+            width: 2px; height: 10px;
+            background: var(--line); margin: 0 auto;
+        }
+
+        .stage-head { display: flex; align-items: center; gap: 10px; }
+
+        .stage-badge {
+            width: 28px; height: 28px; border-radius: 50%;
+            display: grid; place-items: center;
+            font-weight: 800; font-size: 0.82rem; flex: 0 0 auto;
+            transition: background 0.2s, color 0.2s;
+        }
+        .stage-badge.pending { background: rgba(0,0,0,0.07); color: var(--muted); }
+        .stage-badge.running { background: var(--accent); color: #fff; animation: pulse 1.2s ease infinite; }
+        .stage-badge.success { background: var(--success); color: #fff; }
+        .stage-badge.error   { background: var(--danger);  color: #fff; }
+
+        @keyframes pulse {
+            0%,100% { box-shadow: 0 0 0 3px rgba(59,130,246,0.2); }
+            50%      { box-shadow: 0 0 0 6px rgba(59,130,246,0.06); }
+        }
+
+        .stage-info { flex: 1; min-width: 0; }
+        .stage-name { font-weight: 700; font-size: 0.9rem; }
+        .stage-status {
+            font-size: 0.8rem; color: var(--muted); margin-top: 1px;
+            white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+        }
+        .stage-status.running-text { color: var(--accent); }
+        .stage-status.success-text { color: var(--success); }
+        .stage-status.error-text   { color: var(--danger); }
+
+        .stage-body { margin-top: 10px; }
+        .stage-body img {
+            display: block; width: 100%; max-height: 110px;
+            object-fit: contain; border-radius: 8px;
+            border: 1px solid rgba(0,0,0,0.08); background: #f1f5f9;
+        }
+
+        #stage2 .stage-body,
+        #stage3 .stage-body,
+        #stage4 .stage-body { min-height: 350px; }
+        #stage2 .stage-body img,
+        #stage3 .stage-body img,
+        #stage4 .stage-body img { max-height: 350px; }
+
+        /* Stage 6: anchor overlay image */
+        #stage6 .stage-body { min-height: 260px; }
+        #stage6 .stage-body img { max-height: 240px; margin-bottom: 8px; }
+
+        .stage-error-msg {
+            margin-top: 6px; padding: 6px 9px;
+            border-radius: 8px; border: 1px solid rgba(239,68,68,0.35);
+            background: rgba(239,68,68,0.07); color: #b91c1c;
+            font-size: 0.82rem; display: none;
+        }
+        .stage-error-msg.show { display: block; }
+
+        /* ── OCR list ───────────────────────────────────────────────────── */
+        .ocr-list {
+            display: flex; flex-direction: column; gap: 3px;
+            max-height: 190px; overflow-y: auto; padding-right: 4px;
+        }
+        .ocr-item {
+            display: flex; align-items: center; gap: 8px;
+            padding: 4px 8px; border-radius: 6px;
+            background: rgba(0,0,0,0.025);
+            border: 1px solid rgba(0,0,0,0.06);
+        }
+        .ocr-text {
+            font-weight: 600; font-size: 0.85rem; flex: 1;
+            min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+        }
+        .ocr-coord { color: var(--muted); font-size: 0.74rem; flex: 0 0 auto; }
+        .ocr-more  { text-align: center; color: var(--muted); font-size: 0.78rem; padding: 4px; }
+
+        /* ── Anchor list ────────────────────────────────────────────────── */
+        .anchor-list {
+            display: flex; flex-direction: column; gap: 4px;
+            max-height: 160px; overflow-y: auto; padding-right: 4px;
+        }
+        .anchor-item {
+            display: flex; align-items: center; gap: 8px;
+            padding: 5px 8px; border-radius: 6px;
+            background: rgba(59,130,246,0.04);
+            border: 1px solid rgba(59,130,246,0.12);
+        }
+        .anchor-num {
+            width: 22px; height: 22px; border-radius: 50%;
+            background: var(--accent); color: #fff;
+            font-size: 0.72rem; font-weight: 800;
+            display: grid; place-items: center; flex: 0 0 auto;
+        }
+        .anchor-info { flex: 1; min-width: 0; }
+        .anchor-name { font-weight: 600; font-size: 0.83rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .anchor-coords { color: var(--muted); font-size: 0.72rem; }
+        .anchor-error  { color: var(--danger); font-size: 0.78rem; font-weight: 700; flex: 0 0 auto; }
+
+        /* ── Right column ───────────────────────────────────────────────── */
+        .right-col { position: sticky; top: 20px; }
+
+        .result-panel {
+            background: var(--panel);
+            border: 1px solid var(--line);
+            border-radius: 18px; padding: 16px;
+            display: flex; flex-direction: column; gap: 14px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.08);
+        }
+
+        .result-panel-header {
+            display: flex; align-items: center;
+            justify-content: space-between; gap: 10px;
+        }
+        .result-panel-header h2 { font-size: 1.05rem; font-weight: 700; }
+
+        .btn {
+            border: none; color: #fff; border-radius: 10px;
+            padding: 9px 16px; font-weight: 700; font-size: 0.88rem;
+            cursor: pointer;
+            background: linear-gradient(135deg, var(--accent), var(--accent-2));
+            transition: transform 0.15s, opacity 0.15s; white-space: nowrap;
+        }
+        .btn:hover:not(:disabled) { transform: translateY(-1px); }
+        .btn:disabled { opacity: 0.38; cursor: not-allowed; }
+        .btn.success { background: linear-gradient(135deg, #22c55e, #16a34a); }
+
+        /* Result viewer */
+        .result-viewer {
+            position: relative; border-radius: 12px; overflow: hidden;
+            background:
+                linear-gradient(45deg,  rgba(0,0,0,0.03) 25%, transparent 25%),
+                linear-gradient(-45deg, rgba(0,0,0,0.03) 25%, transparent 25%),
+                linear-gradient(45deg,  transparent 75%, rgba(0,0,0,0.03) 75%),
+                linear-gradient(-45deg, transparent 75%, rgba(0,0,0,0.03) 75%),
+                #f1f5f9;
+            background-size: 20px 20px;
+            background-position: 0 0, 0 10px, 10px -10px, -10px 0;
+            border: 1px solid rgba(0,0,0,0.08);
+            min-height: 400px;
+            display: flex; align-items: center; justify-content: center;
+        }
+
+        .result-placeholder {
+            text-align: center; color: var(--muted); font-size: 0.92rem;
+            line-height: 1.6; padding: 20px;
+        }
+        .result-placeholder-icon { font-size: 2.4rem; margin-bottom: 10px; opacity: 0.5; }
+
+        #resultOverlayImg {
+            display: none; width: 100%; height: 100%;
+            object-fit: contain; border-radius: 12px;
+        }
+
+        /* Result stats */
+        .result-meta { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; }
+        .stat-box {
+            background: rgba(0,0,0,0.03); border: 1px solid var(--line);
+            border-radius: 10px; padding: 10px 12px;
+        }
+        .stat-label { color: var(--muted); font-size: 0.75rem; margin-bottom: 3px; }
+        .stat-value { font-weight: 700; font-size: 0.9rem; }
+        .stat-value.start-color { color: #1d4ed8; }
+        .stat-value.end-color   { color: #dc2626; }
+        .stat-value.geo-color   { color: var(--success); }
+
+        /* Spinner */
+        .spinner {
+            display: inline-block; width: 12px; height: 12px;
+            border: 2px solid rgba(59,130,246,0.25); border-top-color: var(--accent);
+            border-radius: 50%; margin-right: 6px; vertical-align: -2px;
+            animation: spin 0.8s linear infinite;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
+
+        /* ── Responsive ─────────────────────────────────────────────────── */
+        @media (max-width: 900px) {
+            .main-grid { grid-template-columns: 1fr; }
+            .right-col { position: static; }
+        }
+    </style>
+</head>
+<body>
+<div class="app">
+
+    <header class="app-header">
+        <h1>Marathon Route Extraction</h1>
+        <div class="subtitle">이미지를 업로드하면 마라톤 경로를 추출하고 후처리 결과를 바로 확인할 수 있습니다.</div>
+    </header>
+
+    <div class="main-grid">
+
+        <!-- ── Left column ──────────────────────────────────────────────── -->
+        <div class="left-col">
+
+            <div class="upload-area" id="uploadArea">
+                <div class="upload-title">클릭하거나 이미지를 드롭하세요</div>
+                <div class="upload-hint">JPG / PNG</div>
+            </div>
+            <input type="file" id="imageInput" accept="image/*" style="display:none">
+
+            <div class="pipeline">
+
+                <!-- Stage 1 -->
+                <div class="stage-card" id="stage1">
+                    <div class="stage-head">
+                        <div class="stage-badge pending" id="badge1">1</div>
+                        <div class="stage-info">
+                            <div class="stage-name">이미지 입력</div>
+                            <div class="stage-status" id="status1">대기 중</div>
+                        </div>
+                    </div>
+                    <div class="stage-body" id="body1"></div>
+                    <div class="stage-error-msg" id="error1"></div>
+                </div>
+
+                <div class="stage-connector"></div>
+
+                <!-- Stage 2 -->
+                <div class="stage-card" id="stage2">
+                    <div class="stage-head">
+                        <div class="stage-badge pending" id="badge2">2</div>
+                        <div class="stage-info">
+                            <div class="stage-name">경로 추출</div>
+                            <div class="stage-status" id="status2">대기 중</div>
+                        </div>
+                    </div>
+                    <div class="stage-body" id="body2"></div>
+                    <div class="stage-error-msg" id="error2"></div>
+                </div>
+
+                <div class="stage-connector"></div>
+
+                <!-- Stage 3 -->
+                <div class="stage-card" id="stage3">
+                    <div class="stage-head">
+                        <div class="stage-badge pending" id="badge3">3</div>
+                        <div class="stage-info">
+                            <div class="stage-name">후처리</div>
+                            <div class="stage-status" id="status3">대기 중</div>
+                        </div>
+                    </div>
+                    <div class="stage-body" id="body3"></div>
+                    <div class="stage-error-msg" id="error3"></div>
+                </div>
+
+                <div class="stage-connector"></div>
+
+                <!-- Stage 4 -->
+                <div class="stage-card" id="stage4">
+                    <div class="stage-head">
+                        <div class="stage-badge pending" id="badge4">4</div>
+                        <div class="stage-info">
+                            <div class="stage-name">경로 오버레이</div>
+                            <div class="stage-status" id="status4">대기 중</div>
+                        </div>
+                    </div>
+                    <div class="stage-body" id="body4"></div>
+                    <div class="stage-error-msg" id="error4"></div>
+                </div>
+
+                <div class="stage-connector"></div>
+
+            </div><!-- .pipeline -->
+        </div><!-- .left-col -->
+
+        <!-- ── Right column ─────────────────────────────────────────────── -->
+        <div class="right-col">
+            <div class="result-panel">
+
+                <div class="result-panel-header">
+                    <h2>경로 결과</h2>
+                </div>
+
+                <div class="result-viewer" id="resultViewer">
+                    <div class="result-placeholder" id="resultPlaceholder">
+                        <div class="result-placeholder-icon">🗺</div>
+                        <div>이미지를 업로드하면<br>추출 경로가 여기에 표시됩니다</div>
+                    </div>
+                    <img id="resultOverlayImg" alt="경로 시각화">
+                </div>
+
+                <div class="result-meta" id="resultMeta" style="display:none">
+                    <div class="stat-box">
+                        <div class="stat-label">경로 포인트</div>
+                        <div class="stat-value" id="statPoints">—</div>
+                    </div>
+                    <div class="stat-box">
+                        <div class="stat-label">시작점</div>
+                        <div class="stat-value start-color" id="statStart">—</div>
+                    </div>
+                    <div class="stat-box">
+                        <div class="stat-label">끝점</div>
+                        <div class="stat-value end-color" id="statEnd">—</div>
+                    </div>
+                </div>
+
+            </div><!-- .result-panel -->
+        </div><!-- .right-col -->
+
+    </div><!-- .main-grid -->
+</div><!-- .app -->
+
+<script>
+    const state = {
+        uploadedImage:     null,
+        mask_b64:          null,
+        skeleton_b64:      null,
+        start:             null,
+        end:               null,
+        path:              [],
+        pipelineRunning:   false,
+    };
+
+    // ── DOM refs ──────────────────────────────────────────────────────────────
+    const uploadArea         = document.getElementById('uploadArea');
+    const imageInput         = document.getElementById('imageInput');
+    const resultPlaceholder   = document.getElementById('resultPlaceholder');
+    const resultOverlayImg    = document.getElementById('resultOverlayImg');
+    const resultMeta          = document.getElementById('resultMeta');
+
+    // ── Stage helpers ─────────────────────────────────────────────────────────
+    function setStage(n, stateClass, statusText, isRunning = false) {
+        const card   = document.getElementById(`stage${n}`);
+        const badge  = document.getElementById(`badge${n}`);
+        const status = document.getElementById(`status${n}`);
+        card.className  = `stage-card ${stateClass}`;
+        badge.className = `stage-badge ${stateClass}`;
+        if      (stateClass === 'success') badge.textContent = '✓';
+        else if (stateClass === 'error')   badge.textContent = '✗';
+        else                               badge.textContent = String(n);
+        status.className = `stage-status ${stateClass}-text`;
+        if (isRunning) status.innerHTML = `<span class="spinner"></span>${statusText}`;
+        else           status.textContent = statusText;
+    }
+
+    function setStageBody(n, html) {
+        document.getElementById(`body${n}`).innerHTML = html;
+    }
+
+    function setStageError(n, msg) {
+        const el = document.getElementById(`error${n}`);
+        el.textContent = msg;
+        el.classList.add('show');
+    }
+
+    function clearStageError(n) {
+        const el = document.getElementById(`error${n}`);
+        if (el) { el.textContent = ''; el.classList.remove('show'); }
+    }
+
+    function thumbHtml(src, alt) {
+        return `<img src="${src}" alt="${alt}">`;
+    }
+
+    function escHtml(str) {
+        return String(str)
+            .replace(/&/g, '&amp;').replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    }
+
+    // ── Right-panel: path overlay ────────────────────────────────────────────
+    function showOverlay(src) {
+        resultPlaceholder.style.display = 'none';
+        resultOverlayImg.src = src;
+        resultOverlayImg.style.display = 'block';
+    }
+
+    function resetRightPanel() {
+        resultOverlayImg.style.display = 'none';
+        resultOverlayImg.src = '';
+        resultPlaceholder.style.display = 'flex';
+        resultMeta.style.display = 'none';
+    }
+
+    // ── Upload handling ───────────────────────────────────────────────────────
+    uploadArea.addEventListener('click', () => imageInput.click());
+    uploadArea.addEventListener('dragover', e => { e.preventDefault(); uploadArea.classList.add('drag-over'); });
+    uploadArea.addEventListener('dragleave', () => uploadArea.classList.remove('drag-over'));
+    uploadArea.addEventListener('drop', e => {
+        e.preventDefault(); uploadArea.classList.remove('drag-over');
+        if (e.dataTransfer.files[0]) handleFile(e.dataTransfer.files[0]);
+    });
+    imageInput.addEventListener('change', () => { if (imageInput.files[0]) handleFile(imageInput.files[0]); });
+
+    function handleFile(file) {
+        if (state.pipelineRunning) return;
+        const reader = new FileReader();
+        reader.onload = e => {
+            state.uploadedImage = e.target.result;
+            uploadArea.classList.add('has-image');
+            uploadArea.innerHTML = `<img src="${state.uploadedImage}" alt="업로드 이미지">`;
+            resetRightPanel();
+            setStage(1, 'success', '업로드 완료');
+            clearStageError(1);
+            for (let i = 2; i <= 4; i++) {
+                setStage(i, 'pending', '대기 중');
+                clearStageError(i);
+                setStageBody(i, '');
+            }
+            runPipeline();
+        };
+        reader.readAsDataURL(file);
+    }
+
+    // ── API helper ────────────────────────────────────────────────────────────
+    async function apiPost(url, body, isFormData = false) {
+        const opts = { method: 'POST' };
+        if (isFormData) { opts.body = body; }
+        else { opts.headers = { 'Content-Type': 'application/json' }; opts.body = JSON.stringify(body); }
+        const r = await fetch(url, opts);
+        if (!r.ok) {
+            let detail = `HTTP ${r.status}`;
+            try { const err = await r.json(); if (typeof err?.detail === 'string') detail = err.detail; } catch (_) {}
+            throw new Error(detail);
+        }
+        return r.json();
+    }
+
+    // ── Pipeline ──────────────────────────────────────────────────────────────
+    async function runPipeline() {
+        state.pipelineRunning = true;
+
+        // ── Stages 1-4 ───────────────────────────────────────────────────────
+        try {
+            // Stage 2: predict
+            setStage(2, 'running', '모델 추론 중...', true);
+            const blob2 = await fetch(state.uploadedImage).then(r => r.blob());
+            const form2 = new FormData();
+            form2.append('file', blob2, 'image.png');
+            const d2       = await apiPost('/api/predict', form2, true);
+            state.mask_b64 = d2.mask_b64;
+            setStage(2, 'success', '경로 추출 완료');
+            setStageBody(2, thumbHtml(state.mask_b64, '마스크'));
+
+            // Stage 3: postprocess + auto extract
+            setStage(3, 'running', '후처리 중...', true);
+            const d3a          = await apiPost('/api/postprocess', { mask_b64: state.mask_b64 });
+            state.skeleton_b64 = d3a.skeleton_b64;
+
+            setStage(3, 'running', '경로 순서 결정 중...', true);
+            const d3b = await apiPost('/api/auto_extract_path', {
+                skeleton_b64:  state.skeleton_b64,
+                input_img_b64: state.uploadedImage,
+            });
+            if (d3b.status !== 'success') throw new Error(d3b.message || '경로 추출 실패');
+            state.start = d3b.start;
+            state.end   = d3b.end;
+            state.path  = d3b.path;
+            setStage(3, 'success', '후처리 완료');
+            setStageBody(3, thumbHtml(state.skeleton_b64, '스켈레톤'));
+
+            // Stage 4: overlay
+            setStage(4, 'success', `경로 오버레이 · ${state.path.length.toLocaleString()}픽셀`);
+            setStageBody(4, thumbHtml(d3b.overlay_b64, '경로 오버레이'));
+
+            // Show path overlay in right panel
+            showOverlay(d3b.overlay_b64);
+            document.getElementById('statPoints').textContent = state.path.length.toLocaleString();
+            document.getElementById('statStart').textContent  = `[${state.start[0]}, ${state.start[1]}]`;
+            document.getElementById('statEnd').textContent    = `[${state.end[0]}, ${state.end[1]}]`;
+            resultMeta.style.display = 'grid';
+
+        } catch (err) {
+            ['4', '3', '2', '1'].forEach(n => {
+                const badge = document.getElementById(`badge${n}`);
+                if (badge && badge.className.includes('running')) {
+                    setStage(Number(n), 'error', '실패');
+                    setStageError(Number(n), err.message);
+                }
+            });
+            console.error('[pipeline]', err);
+            state.pipelineRunning = false;
+            return;
+        }
+        state.pipelineRunning = false;
+    }
+</script>
+</body>
+</html>

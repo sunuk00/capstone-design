@@ -5,16 +5,16 @@
 ![HuggingFace](https://img.shields.io/badge/HuggingFace-Transformers-FFD21E?logo=huggingface)
 ![OpenCV](https://img.shields.io/badge/OpenCV-4.x-5C3EE8?logo=opencv)
 
-> Automatically extract marathon route paths from map images and convert them into GPX files using a hybrid deep learning segmentation model.
+> Automatically extract marathon route paths from map images and visualize the extracted route in a demo web app.
 
 ---
 
 ## 📌 Overview
 
-This project presents an end-to-end pipeline that takes a marathon route map image as input and outputs a GPX file representing the real-world geographic path. The pipeline consists of two major components:
+This project presents an end-to-end pipeline that takes a marathon route map image as input and extracts the route as a pixel path in a demo web app. The pipeline consists of two major components:
 
 - **AI Segmentation (this repo)** — Extracts the route mask from the map image using a custom hybrid model (SegFormerUNet-b2), then refines it into a pixel coordinate list via post-processing.
-- **[Coordinate Transformation (teammate)](https://github.com/jwonni/Capston-A-man-of-Gyeongsang-do.git)** — Applies OCR-based anchor detection and homography transformation to convert pixel coordinates into GPS coordinates, then exports a GPX file.
+- **Demo Web App** — Provides a browser UI for image upload, route prediction, post-processing, ordered path extraction, and overlay visualization.
 
 ### Result Preview
 
@@ -122,36 +122,86 @@ Evaluated on 30 test images. **Path F1** is the primary metric, based on skeleto
  
 ---
 
+## 🛠️ Installation
+
+```bash
+git clone https://github.com/sunuk00/capstone-design.git
+cd marathon-path-seg
+pip install -r requirements.txt
+```
+
+### Key dependencies
+
+```
+torch >= 2.0
+fastapi
+pydantic
+uvicorn
+scikit-image
+opencv-python-headless
+matplotlib
+```
+
+---
+
+## 🚀 Usage
+
+### Run the demo app
+
+```bash
+python app/app.py
+```
+
+Then open the web app in your browser:
+
+```text
+http://localhost:8010
+```
+
+### Demo flow
+Before running the demo, ensure that the model weights are downloaded and placed in the `weights/` folder.
+
+You can donwload the weights from the Google Drive Link:  https://drive.google.com/file/d/1ovpREo2kjvndXAEZDQKZnbzXigu-BemO/view?usp=drive_link
+
+You should rename the downloaded files as follows:
+- `model_best.pt` -> `segformer_unet_b2_best.pt`
+
+1. Upload a marathon route image in the left panel.
+2. The app runs model prediction to produce a route mask.
+3. The mask is post-processed into a skeletonized route.
+4. The ordered path is extracted automatically.
+5. The route overlay and summary are shown in the right panel.
+
+### API endpoints used by the demo
+
+- `POST /api/predict` - model inference from uploaded image
+- `POST /api/postprocess` - route mask cleanup and skeletonization
+- `POST /api/auto_extract_path` - automatic ordered path extraction
+
+### Demo UI screenshots
+
+<img src="assets/demo_ui.png" alt="demo UI screenshot" width="800">
+
+---
+
 ## 📁 Project Structure
 
 ```
-capstone-design/
-├── src/
-│   ├── models/
-│   │   ├── unet.py
-│   │   ├── segformer.py
-│   │   └── segformer_unet.py      # SegFormerUNet-b2
-│   ├── evaluation.py              # Evaluation pipeline
-│   └── postprocess.py             # Post-processing pipeline
-├── configs/                       # Training / inference YAML configs
+marathon-path-seg/
+├── app/
+│   ├── app.py                    # FastAPI demo server
+│   ├── static/index.html         # Demo UI
+│   └── src/
+│       ├── config.py             # Shared inference / postprocess defaults
+│       └── marathon_route_extraction/
+│           ├── unet.py           # UNet inference utilities
+│           ├── segformer_unet_b2.py
+│           ├── postprocess.py    # Mask cleanup and skeletonization
+│           └── path_extractor.py # Ordered path extraction
+├── configs/
 ├── data/
-│   └── test/
-│       ├── images/                # Test images
-│       └── masks/                 # Ground truth masks
-├── outputs/                       # Experiment outputs and checkpoints
-│   ├── unet/
-│   │   └── exp*/                  # e.g. model_best.pt, model_last.pt
-│   ├── segformer/
-│   │   └── exp*/
-│   └── segformer-unet-b2/
-│       ├── exp*/                  # model_best.pt, training_log.json
-│       └── exp*/predictions/      # predicted masks + prediction_log.json
-├── eval_results/                  # Evaluation outputs and visualizations
-│   ├── eval_results.csv
-│   └── viz/
-│       ├── UNet/
-│       ├── SegFormer/
-│       └── SegFormerUNet-b2/
+├── outputs/
+├── weights/
 ├── requirements.txt
 └── README.md
 ```
@@ -162,15 +212,8 @@ capstone-design/
 
 | Name | Role |
 |---|---|
-| **ME**| AI pipeline — data preprocessing, model design & training (UNet / SegFormer / SegFormerUNet-b2), post-processing, evaluation |
-| Teammate | Coordinate transformation — OCR-based anchor detection (Hi-SAM + PaddleOCR), homography matrix computation, GPX export |
-
----
-
-## 📝 Related Posts
-
-- [U-Net Architecture Review](https://sunuk00.github.io/Papers/2026-03-23-UNet.html) — Analysis of U-Net's structural limitations for linear path segmentation
-- [Capstone Final Report](https://sunuk00.github.io/Projects/Capstone/) - Comprehensive documentation of the project, including methodology, results, and future work
+| **ME**| AI segmentation pipeline — data preprocessing, model design & training (UNet / SegFormer / SegFormerUNet-b2), post-processing, demo UI integration |
+| Teammate | Coordinate transformation — OCR-based anchor detection (removed from this demo branch) |
 
 ---
 
