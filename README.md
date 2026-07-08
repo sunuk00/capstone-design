@@ -115,10 +115,6 @@ specifically for marathon route evaluation based on two key insights:
    thickness bias, ensuring that a thicker prediction does not artificially 
    inflate the score.
 
-A GT skeleton dilation of 10px is applied as a positional tolerance, 
-acknowledging that a path predicted within 10 pixels of the ground truth 
-centerline is effectively correct.
-
 | Model | Path P | Path R | **Path F1** | Dice | IoU |
 |---|---|---|---|---|---|
 | UNet | 0.868 | 0.030 | 0.058 | 0.546 | 0.429 |
