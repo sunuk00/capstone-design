@@ -101,8 +101,23 @@ Synthetic route images were additionally generated to address data scarcity and 
 ---
 
 ## 📊 Evaluation Results
+Evaluated on 30 test images. **Path F1** is the primary metric.
 
-Evaluated on 30 test images. **Path F1** is the primary metric, based on skeleton-level comparison between the predicted main path and the GT mask to eliminate thickness bias.
+Unlike standard pixel-overlap metrics (Dice, IoU), Path F1 is designed 
+specifically for marathon route evaluation based on two key insights:
+
+1. **Main path only** — Only the largest connected component of the predicted 
+   mask is evaluated, filtering out disconnected noise fragments that do not 
+   contribute to the actual route.
+
+2. **Skeleton-level comparison** — Both the predicted main path and the GT mask 
+   are skeletonized to 1-pixel centerlines before comparison. This eliminates 
+   thickness bias, ensuring that a thicker prediction does not artificially 
+   inflate the score.
+
+A GT skeleton dilation of 10px is applied as a positional tolerance, 
+acknowledging that a path predicted within 10 pixels of the ground truth 
+centerline is effectively correct.
 
 | Model | Path P | Path R | **Path F1** | Dice | IoU |
 |---|---|---|---|---|---|
@@ -110,9 +125,12 @@ Evaluated on 30 test images. **Path F1** is the primary metric, based on skeleto
 | SegFormer | 0.957 | 0.030 | 0.058 | 0.701 | 0.597 |
 | **SegFormerUNet-b2** | **0.998** | **0.039** | **0.075** | **0.843** | **0.749** |
 
-> **Path P (Precision)**: Of the pixels the model predicted as the route, how many are actually on the correct route.  
-> **Path R (Recall)**: Of the ground-truth route, how much did the model successfully find.  
-> **Path F1**: Harmonic mean of Precision and Recall — the primary performance score.
+> **Path P (Precision)**: Of the predicted main path skeleton pixels, 
+> how many fall within the GT skeleton tolerance zone.  
+> **Path R (Recall)**: Of the GT skeleton tolerance zone, how much is 
+> covered by the predicted main path skeleton.  
+> **Path F1**: Harmonic mean of Precision and Recall — the primary performance score.  
+> **Dice / IoU**: Standard pixel-overlap metrics included as reference only.
 
 ### Qualitative Comparison
 
@@ -161,7 +179,7 @@ http://localhost:8010
 ### Demo flow
 Before running the demo, ensure that the model weights are downloaded and placed in the `weights/` folder.
 
-You can donwload the weights from the Google Drive Link:  https://drive.google.com/file/d/1ovpREo2kjvndXAEZDQKZnbzXigu-BemO/view?usp=drive_link
+You can donwload the weights from the Google Drive Link:  [Google Drive](https://drive.google.com/file/d/1ovpREo2kjvndXAEZDQKZnbzXigu-BemO/view?usp=drive_link)
 
 You should rename the downloaded files as follows:
 - `model_best.pt` -> `segformer_unet_b2_best.pt`
@@ -188,23 +206,18 @@ You should rename the downloaded files as follows:
 ## 📁 Project Structure
 
 ```
-marathon-path-seg/
-├── app/
-│   ├── app.py                    # FastAPI demo server
-│   ├── static/index.html         # Demo UI
-│   └── src/
-│       ├── config.py             # Shared inference / postprocess defaults
-│       └── marathon_route_extraction/
-│           ├── unet.py           # UNet inference utilities
-│           ├── segformer_unet_b2.py
-│           ├── postprocess.py    # Mask cleanup and skeletonization
-│           └── path_extractor.py # Ordered path extraction
-├── configs/
-├── data/
-├── outputs/
-├── weights/
-├── requirements.txt
-└── README.md
+app/
+├── app.py                    # FastAPI demo server
+├── static/index.html         # Demo UI
+└── src/
+    ├── config.py             # Shared inference / postprocess defaults
+    └── marathon_route_extraction/
+        ├── unet.py           # UNet inference utilities
+        ├── segformer_unet_b2.py
+        ├── postprocess.py    # Mask cleanup and skeletonization
+        └── path_extractor.py # Ordered path extraction
+│ 
+├── weights/ # Pre-trained model weights (not included in repo; download from Google Drive)
 ```
 
 ---
